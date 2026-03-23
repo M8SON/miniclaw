@@ -1,0 +1,8 @@
+type: native
+image: pi-assistant/spotify:latest
+env_passthrough:
+  - SPOTIFY_CLIENT_ID
+  - SPOTIFY_CLIENT_SECRET
+  - SPOTIFY_REDIRECT_URI
+timeout_seconds: 20
+devices: []

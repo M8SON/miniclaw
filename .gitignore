@@ -1,0 +1,42 @@
+# Secrets
+.env
+.spotify_cache
+.spotify_token_cache
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Whisper / TTS models (downloaded at runtime)
+*.pt
+*.onnx
+*.onnx.json
+
+# Audio
+*.wav
+*.mp3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker build artifacts
+*.tar.gz
+
+# Logs
+*.log
