@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pi Assistant - Main entry point
+MiniClaw - Main entry point
 
 A modular, voice-controlled AI assistant designed for Raspberry Pi.
 Uses a skill-based architecture with Docker container execution.
@@ -26,7 +26,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("pi-assistant")
+logger = logging.getLogger("miniclaw")
 
 
 def run_voice_mode(orchestrator):
@@ -44,7 +44,7 @@ def run_voice_mode(orchestrator):
     )
 
     print("\n" + "=" * 60)
-    print("  Pi Assistant")
+    print("  MiniClaw")
     print("=" * 60)
     print("\n  Speak naturally. I will respond when you finish.")
     print("  Say 'goodbye' or 'stop' to exit.")
@@ -92,7 +92,7 @@ def run_voice_mode(orchestrator):
 def run_text_mode(orchestrator):
     """Run the assistant in text-only mode (no microphone needed)."""
     print("\n" + "=" * 60)
-    print("  Pi Assistant (Text Mode)")
+    print("  MiniClaw (Text Mode)")
     print("=" * 60)
 
     skills = orchestrator.list_skills()
@@ -148,7 +148,7 @@ def list_skills(orchestrator):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Pi Assistant")
+    parser = argparse.ArgumentParser(description="MiniClaw")
     parser.add_argument(
         "--text", action="store_true", help="Run in text-only mode"
     )
@@ -172,7 +172,7 @@ def main():
     # Build skill search paths
     skill_paths = [
         Path("./skills"),
-        Path.home() / ".pi-assistant" / "skills",
+        Path.home() / ".miniclaw" / "skills",
     ]
     if args.skills_dir:
         skill_paths.insert(0, Path(args.skills_dir))

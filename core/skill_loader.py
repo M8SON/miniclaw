@@ -55,7 +55,7 @@ class SkillLoader:
 
     Precedence (highest first):
       1. workspace skills  (./skills)
-      2. user skills        (~/.pi-assistant/skills)
+      2. user skills        (~/.miniclaw/skills)
       3. bundled skills     (installed with the package)
 
     A skill with the same name in a higher-precedence directory
@@ -65,7 +65,7 @@ class SkillLoader:
     # Directories scanned in order of precedence (highest first)
     DEFAULT_SEARCH_PATHS = [
         Path("./skills"),
-        Path.home() / ".pi-assistant" / "skills",
+        Path.home() / ".miniclaw" / "skills",
         Path(__file__).resolve().parent.parent / "skills",  # bundled
     ]
 
@@ -319,7 +319,7 @@ class SkillLoader:
 
         return {
             "type": "openclaw_compat",
-            "image": "pi-assistant/skill-executor:latest",
+            "image": "miniclaw/skill-executor:latest",
             "env_passthrough": env_vars,
             "primary_env": primary_env,
             "required_bins": requires.get("bins", []) if requires else [],

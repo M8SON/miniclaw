@@ -1,5 +1,5 @@
 """
-Orchestrator - Central coordinator for the Pi Assistant.
+Orchestrator - Central coordinator for MiniClaw.
 
 Connects the voice interface, skill system, container execution,
 and Claude API into a single loop:
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 class Orchestrator:
     """
-    Main coordinator for the Pi Assistant.
+    Main coordinator for MiniClaw.
 
     Responsibilities:
       - Load and manage skills

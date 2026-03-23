@@ -1,5 +1,5 @@
 type: native
-image: pi-assistant/spotify:latest
+image: miniclaw/spotify:latest
 env_passthrough:
   - SPOTIFY_CLIENT_ID
   - SPOTIFY_CLIENT_SECRET

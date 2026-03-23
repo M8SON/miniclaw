@@ -2,7 +2,7 @@
 # Tells the container manager how to run this skill
 
 type: native
-image: pi-assistant/weather:latest
+image: miniclaw/weather:latest
 
 # Environment variables to pass from host into container
 env_passthrough:

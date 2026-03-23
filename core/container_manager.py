@@ -112,7 +112,7 @@ class ContainerManager:
         but we run them in isolation.
         """
         config = skill.execution_config
-        image = config.get("image", "pi-assistant/skill-executor:latest")
+        image = config.get("image", "miniclaw/skill-executor:latest")
         timeout = config.get("timeout_seconds", self.DEFAULT_TIMEOUT)
 
         # Build environment from passthrough vars

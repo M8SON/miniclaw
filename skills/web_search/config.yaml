@@ -1,5 +1,5 @@
 type: native
-image: pi-assistant/web-search:latest
+image: miniclaw/web-search:latest
 env_passthrough:
   - BRAVE_API_KEY
 timeout_seconds: 15
