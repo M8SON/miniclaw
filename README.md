@@ -1,4 +1,4 @@
-# Pi Assistant
+# MiniClaw
 
 An open-source, modular voice assistant designed for Raspberry Pi. Think Jarvis, but running on a $120 board in your living room.
 
@@ -48,8 +48,8 @@ The system uses two layers for extensibility:
 ### Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/pi-assistant.git
-cd pi-assistant
+git clone https://github.com/M8SON/MiniClaw.git
+cd MiniClaw
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -60,9 +60,9 @@ cp .env.example .env
 ### Build skill containers
 
 ```bash
-docker build -t pi-assistant/weather containers/weather/
-docker build -t pi-assistant/web-search containers/web_search/
-docker build -t pi-assistant/spotify containers/spotify/
+docker build -t miniclaw/weather containers/weather/
+docker build -t miniclaw/web-search containers/web_search/
+docker build -t miniclaw/spotify containers/spotify/
 ```
 
 ### Run
@@ -111,7 +111,7 @@ Use when the user asks about...
 
 ```yaml
 type: native
-image: pi-assistant/my-skill:latest
+image: miniclaw/my-skill:latest
 env_passthrough:
   - MY_API_KEY
 timeout_seconds: 15
@@ -128,13 +128,13 @@ Drop any OpenClaw skill directory (containing a `SKILL.md` with OpenClaw metadat
 If the same skill name exists in multiple locations, higher-precedence directories win:
 
 1. `./skills/` (workspace — highest)
-2. `~/.pi-assistant/skills/` (user)
+2. `~/.miniclaw/skills/` (user)
 3. Bundled skills (lowest)
 
 ## Project Structure
 
 ```
-pi-assistant/
+MiniClaw/
 ├── main.py                     # Entry point (voice, text, or list mode)
 ├── core/
 │   ├── orchestrator.py         # Central coordinator: Claude + skills + containers
