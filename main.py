@@ -40,9 +40,7 @@ def run_voice_mode(orchestrator):
         wake_model=os.getenv("WAKE_MODEL", "tiny"),
         wake_phrase=wake_phrase,
         enable_tts=os.getenv("ENABLE_TTS", "true").lower() == "true",
-        tts_model_path=os.getenv(
-            "TTS_MODEL_PATH", "models/en_GB-cori-medium.onnx"
-        ),
+        tts_voice=os.getenv("TTS_VOICE", "af_heart"),
         silence_threshold=int(os.getenv("SILENCE_THRESHOLD", "1000")),
         silence_duration=float(os.getenv("SILENCE_DURATION", "2.0")),
     )

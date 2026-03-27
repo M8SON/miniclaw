@@ -1,5 +1,5 @@
 """
-Voice Interface - Handles microphone input (Whisper STT) and speaker output (Piper TTS).
+Voice Interface - Handles microphone input (Whisper STT) and speaker output (Kokoro TTS).
 
 Designed to be swappable — if the AI HAT+ 2 accelerates Whisper, only this module changes.
 
@@ -16,9 +16,13 @@ import logging
 
 import numpy as np
 import pyaudio
+import soundfile as sf
 import whisper
+from kokoro import KPipeline
 
 logger = logging.getLogger(__name__)
+
+KOKORO_SAMPLE_RATE = 24000
 
 
 class VoiceInterface:
@@ -28,7 +32,7 @@ class VoiceInterface:
     Audio pipeline:
       Wake:   Microphone → PyAudio → 2s sliding window → whisper-tiny → phrase check
       Input:  Microphone → PyAudio → silence detection → whisper-base → text
-      Output: text → Piper TTS → WAV → aplay → speaker
+      Output: text → Kokoro TTS → WAV → aplay → speaker
     """
 
     CHUNK = 1024
@@ -46,12 +50,11 @@ class VoiceInterface:
         wake_model: str = "tiny",
         wake_phrase: str = "hey computer",
         enable_tts: bool = True,
-        tts_model_path: str = "models/en_GB-cori-medium.onnx",
+        tts_voice: str = "af_heart",
         silence_threshold: int = 1000,
         silence_duration: float = 2.0,
     ):
         self.enable_tts = enable_tts
-        self.tts_model_path = tts_model_path
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
         self.wake_phrase = wake_phrase.lower().strip()
@@ -61,6 +64,13 @@ class VoiceInterface:
 
         logger.info("Loading Whisper transcription model: %s", whisper_model)
         self.whisper_model = whisper.load_model(whisper_model)
+
+        if enable_tts:
+            logger.info("Loading Kokoro TTS pipeline (voice: %s)...", tts_voice)
+            self._tts = KPipeline(lang_code="a")
+            self._tts_voice = tts_voice
+        else:
+            self._tts = None
 
         logger.info("Models loaded — wake phrase: '%s'", self.wake_phrase)
 
@@ -154,21 +164,24 @@ class VoiceInterface:
         return transcription.strip()
 
     def speak(self, text: str):
-        """Speak text aloud using Piper TTS."""
-        if not self.enable_tts:
+        """Speak text aloud using Kokoro TTS."""
+        if not self.enable_tts or self._tts is None:
             return
 
         try:
+            chunks = []
+            for _, _, audio in self._tts(text, voice=self._tts_voice):
+                chunks.append(audio)
+
+            if not chunks:
+                return
+
+            audio_data = np.concatenate(chunks)
+
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 temp_wav = f.name
 
-            piper_bin = os.environ.get("PIPER_BINARY", "piper")
-            subprocess.run(
-                [piper_bin, "--model", self.tts_model_path, "--output_file", temp_wav],
-                input=text.encode(),
-                check=True,
-                stderr=subprocess.DEVNULL,
-            )
+            sf.write(temp_wav, audio_data, KOKORO_SAMPLE_RATE)
 
             subprocess.run(
                 ["aplay", temp_wav],

@@ -50,24 +50,14 @@ else
     ok "dependencies present"
 fi
 
-# ── TTS voice model ───────────────────────────────────────────────────────────
-# Auto-download the Piper voice model if not present.
-# Whisper models are handled automatically by the openai-whisper package.
+# ── espeak-ng (required by Kokoro TTS) ───────────────────────────────────────
+# Kokoro downloads its own model automatically on first run (~80MB to ~/.cache/huggingface/).
+# espeak-ng must be installed as a system package.
 
-TTS_MODEL_DIR="models"
-TTS_MODEL="$TTS_MODEL_DIR/en_GB-cori-medium.onnx"
-TTS_MODEL_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/medium/en_GB-cori-medium.onnx"
-TTS_MODEL_JSON_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/medium/en_GB-cori-medium.onnx.json"
-
-mkdir -p "$TTS_MODEL_DIR"
-
-if [ ! -f "$TTS_MODEL" ]; then
-    echo "  Downloading Piper TTS voice model (~63MB)..."
-    curl -L -o "$TTS_MODEL" "$TTS_MODEL_URL" --progress-bar
-    curl -L -o "${TTS_MODEL}.json" "$TTS_MODEL_JSON_URL" --progress-bar
-    ok "TTS model downloaded"
+if command -v espeak-ng &>/dev/null; then
+    ok "espeak-ng"
 else
-    ok "TTS model present"
+    warn "espeak-ng not found — TTS will fail. Install with: sudo apt install espeak-ng"
 fi
 
 # ── Environment ──────────────────────────────────────────────────────────────
