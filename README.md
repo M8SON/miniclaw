@@ -105,14 +105,28 @@ devices: []
 
 Then build a container in `containers/my_skill/` with an app that reads `SKILL_INPUT` (JSON) from the environment and prints the result to stdout. Add the image to the `CONTAINERS` map in `run.sh` so it gets built automatically.
 
-### OpenClaw-compatible skills
+### Porting an OpenClaw skill
 
-Drop any OpenClaw skill directory into `skills/` — no `config.yaml` needed. The skill loader auto-detects the format. Two execution modes are supported:
+Every skill in MiniClaw runs in a container — including community OpenClaw skills. Use the porting script to scaffold the required files from any OpenClaw skill directory:
 
-- **Pure-instruction skills** (no scripts) — Claude responds directly from the skill's instructions
-- **Script-based skills** (with a `scripts/` directory) — the generic `miniclaw/skill-executor` container runs `scripts/main.py`, `scripts/run.sh`, or `scripts/index.js`
+```bash
+python3 scripts/port-skill.py /path/to/openclaw-skill/
+```
 
-Skills that require missing environment variables or binaries (`requires.bins`, `requires.anyBins`) are silently skipped at load time.
+This reads the `SKILL.md`, generates `config.yaml` and a container scaffold (`Dockerfile` + `app.py`), and prints the next steps. If the OpenClaw skill includes a `scripts/` directory, those are copied in and wired up automatically.
+
+**What you still need to do after running the script:**
+
+1. Implement (or verify) the logic in `containers/<name>/app.py` — the script generates a working skeleton but the API calls are yours to fill in
+2. Add any required API keys to `.env`
+3. Add the image to the `SKILL_CONTAINERS` map in `run.sh` so it builds automatically
+4. Build and test:
+   ```bash
+   docker build -t miniclaw/<name>:latest containers/<name>/
+   ./run.sh --list
+   ```
+
+Skills that require missing environment variables or binaries (`requires.env`, `requires.bins`, `requires.anyBins`) are silently skipped at load time.
 
 ### Skill precedence
 
@@ -128,6 +142,8 @@ If the same skill name exists in multiple locations, higher-precedence directori
 MiniClaw/
 ├── main.py                     # Entry point (voice, text, or list mode)
 ├── run.sh                      # Setup + launch script
+├── scripts/
+│   └── port-skill.py           # Scaffold a container from an OpenClaw skill
 ├── core/
 │   ├── orchestrator.py         # Central coordinator: Claude + skills + containers
 │   ├── skill_loader.py         # Parses SKILL.md files (native + OpenClaw format)
