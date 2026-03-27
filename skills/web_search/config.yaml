@@ -1,4 +1,3 @@
-type: native
 image: miniclaw/web-search:latest
 env_passthrough:
   - BRAVE_API_KEY

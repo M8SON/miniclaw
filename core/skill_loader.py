@@ -16,7 +16,6 @@ import shutil
 import platform
 import logging
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,6 @@ class Skill:
         tool_definition: dict,
         execution_config: dict,
         skill_dir: str,
-        metadata: Optional[dict] = None,
     ):
         self.name = name
         self.description = description
@@ -40,7 +38,6 @@ class Skill:
         self.tool_definition = tool_definition
         self.execution_config = execution_config
         self.skill_dir = skill_dir
-        self.metadata = metadata or {}
 
     def __repr__(self):
         return f"Skill(name={self.name!r})"
@@ -146,7 +143,6 @@ class SkillLoader:
             tool_definition=tool_definition,
             execution_config=execution_config,
             skill_dir=str(skill_dir),
-            metadata=frontmatter.get("metadata", {}),
         )
 
     def _parse_frontmatter(self, raw: str) -> tuple[dict | None, str]:

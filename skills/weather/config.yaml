@@ -1,15 +1,5 @@
-# Native skill execution config
-# Tells the container manager how to run this skill
-
-type: native
 image: miniclaw/weather:latest
-
-# Environment variables to pass from host into container
 env_passthrough:
   - OPENWEATHER_API_KEY
-
-# Resource limits (override defaults for lightweight skills)
 timeout_seconds: 15
-
-# No special hardware access needed
 devices: []

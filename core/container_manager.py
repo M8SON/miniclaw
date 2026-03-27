@@ -135,28 +135,3 @@ class ContainerManager:
         """Collect env vars that exist in the host environment."""
         return {var: val for var in var_names if (val := os.environ.get(var))}
 
-    def image_exists(self, image: str) -> bool:
-        try:
-            result = subprocess.run(
-                ["docker", "image", "inspect", image],
-                capture_output=True,
-                timeout=10,
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
-
-    def pull_image(self, image: str) -> bool:
-        if self.image_exists(image):
-            return True
-        logger.info("Pulling image: %s", image)
-        try:
-            result = subprocess.run(
-                ["docker", "pull", image],
-                capture_output=True,
-                timeout=300,
-            )
-            return result.returncode == 0
-        except Exception as e:
-            logger.error("Failed to pull image %s: %s", image, e)
-            return False
