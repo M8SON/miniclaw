@@ -68,47 +68,39 @@ cp .env.example .env
 
 ### Native skills
 
-Create a directory in `skills/` with two files:
+Create a directory in `skills/` with two files. See `skills/weather/` for a complete working example.
 
-**`SKILL.md`** — Tells Claude when and how to use the skill:
+**`SKILL.md`** — Tells Claude when and how to use the skill (see `skills/weather/SKILL.md` for the full file):
 
-```yaml
+```
 ---
-name: my_skill
-description: What this skill does
+name: get_weather
+description: Get current weather information for a specific location
 requires:
   env:
-    - MY_API_KEY
+    - OPENWEATHER_API_KEY
 ---
 
-# My Skill
-
 ## When to use
-Use when the user asks about...
+Use this skill when the user asks about weather, temperature, or
+conditions in a specific location.
 
 ## Inputs
-```yaml
-type: object
-properties:
-  query:
-    type: string
-    description: The input query
-required:
-  - query
-```
+(yaml schema defining the query parameter)
 
 ## How to respond
-...
+Summarize the weather conversationally. Keep it brief for spoken delivery.
 ```
 
 **`config.yaml`** — Tells the orchestrator how to execute it:
 
 ```yaml
 type: native
-image: miniclaw/my-skill:latest
+image: miniclaw/weather:latest
 env_passthrough:
-  - MY_API_KEY
+  - OPENWEATHER_API_KEY
 timeout_seconds: 15
+devices: []
 ```
 
 Then build a container in `containers/my_skill/` with an app that reads `SKILL_INPUT` (JSON) from the environment and prints the result to stdout. Add the image to the `CONTAINERS` map in `run.sh` so it gets built automatically.
