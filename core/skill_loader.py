@@ -212,12 +212,18 @@ class SkillLoader:
                 logger.debug("Skill missing env var: %s", var)
                 return False
 
-        # Check required binaries on PATH
+        # Check required binaries on PATH (all must exist)
         required_bins = requires.get("bins", [])
         for binary in required_bins:
             if not shutil.which(binary):
                 logger.debug("Skill missing binary: %s", binary)
                 return False
+
+        # Check anyBins (at least one must exist)
+        any_bins = requires.get("anyBins", [])
+        if any_bins and not any(shutil.which(b) for b in any_bins):
+            logger.debug("Skill missing all anyBins: %s", any_bins)
+            return False
 
         # Check OS constraint
         required_os = requires.get("os", [])

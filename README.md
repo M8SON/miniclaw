@@ -33,7 +33,7 @@ The system uses two layers for extensibility:
 - Docker
 - [Anthropic API key](https://console.anthropic.com/)
 - Microphone + speaker (for voice mode)
-- Optional: [Brave Search API key](https://brave.com/search/api/), [OpenWeatherMap API key](https://openweathermap.org/api), [Spotify credentials](https://developer.spotify.com/dashboard)
+- Optional: [Brave Search API key](https://brave.com/search/api/), [OpenWeatherMap API key](https://openweathermap.org/api)
 
 ### Recommended Hardware
 
@@ -50,33 +50,19 @@ The system uses two layers for extensibility:
 ```bash
 git clone https://github.com/M8SON/MiniClaw.git
 cd MiniClaw
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your API keys
-```
-
-### Build skill containers
-
-```bash
-docker build -t miniclaw/weather containers/weather/
-docker build -t miniclaw/web-search containers/web_search/
-docker build -t miniclaw/spotify containers/spotify/
 ```
 
 ### Run
 
 ```bash
-# Voice mode (requires microphone)
-python3 main.py
-
-# Text mode (no microphone needed)
-python3 main.py --text
-
-# List loaded skills
-python3 main.py --list
+./run.sh          # text mode (default, no microphone needed)
+./run.sh --voice  # voice mode
+./run.sh --list   # list loaded skills and exit
 ```
+
+`run.sh` handles everything automatically: creates the virtual environment, installs dependencies, and builds any missing Docker containers before launching.
 
 ## Adding Skills
 
@@ -101,7 +87,15 @@ requires:
 Use when the user asks about...
 
 ## Inputs
-...
+```yaml
+type: object
+properties:
+  query:
+    type: string
+    description: The input query
+required:
+  - query
+```
 
 ## How to respond
 ...
@@ -117,11 +111,16 @@ env_passthrough:
 timeout_seconds: 15
 ```
 
-Then build a container in `containers/my_skill/` with a simple app that reads `SKILL_INPUT` from the environment and prints the result to stdout.
+Then build a container in `containers/my_skill/` with an app that reads `SKILL_INPUT` (JSON) from the environment and prints the result to stdout. Add the image to the `CONTAINERS` map in `run.sh` so it gets built automatically.
 
 ### OpenClaw-compatible skills
 
-Drop any OpenClaw skill directory (containing a `SKILL.md` with OpenClaw metadata) into `skills/`. The skill loader auto-detects the format and wraps execution in a sandboxed container. Skills that require missing environment variables or binaries are silently skipped.
+Drop any OpenClaw skill directory into `skills/` — no `config.yaml` needed. The skill loader auto-detects the format. Two execution modes are supported:
+
+- **Pure-instruction skills** (no scripts) — Claude responds directly from the skill's instructions
+- **Script-based skills** (with a `scripts/` directory) — the generic `miniclaw/skill-executor` container runs `scripts/main.py`, `scripts/run.sh`, or `scripts/index.js`
+
+Skills that require missing environment variables or binaries (`requires.bins`, `requires.anyBins`) are silently skipped at load time.
 
 ### Skill precedence
 
@@ -136,6 +135,7 @@ If the same skill name exists in multiple locations, higher-precedence directori
 ```
 MiniClaw/
 ├── main.py                     # Entry point (voice, text, or list mode)
+├── run.sh                      # Setup + launch script
 ├── core/
 │   ├── orchestrator.py         # Central coordinator: Claude + skills + containers
 │   ├── skill_loader.py         # Parses SKILL.md files (native + OpenClaw format)
@@ -144,11 +144,12 @@ MiniClaw/
 ├── skills/                     # Skill definitions (SKILL.md + config.yaml)
 │   ├── weather/
 │   ├── web_search/
-│   └── spotify/
+│   └── soundcloud/
 ├── containers/                 # Docker containers for skill execution
 │   ├── weather/
 │   ├── web_search/
-│   └── spotify/
+│   ├── soundcloud/
+│   └── skill-executor/         # Generic executor for OpenClaw skills with scripts
 ├── requirements.txt
 ├── .env.example
 └── .gitignore
