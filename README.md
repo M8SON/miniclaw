@@ -50,7 +50,7 @@ The system uses two layers for extensibility:
 ```bash
 git clone https://github.com/M8SON/MiniClaw.git
 cd MiniClaw
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
@@ -69,13 +69,13 @@ docker build -t miniclaw/spotify containers/spotify/
 
 ```bash
 # Voice mode (requires microphone)
-python main.py
+python3 main.py
 
 # Text mode (no microphone needed)
-python main.py --text
+python3 main.py --text
 
 # List loaded skills
-python main.py --list
+python3 main.py --list
 ```
 
 ## Adding Skills
@@ -156,9 +156,9 @@ MiniClaw/
 
 ## Roadmap
 
-- [ ] Core orchestrator + skill loader
-- [ ] Docker container execution
-- [ ] OpenClaw skill compatibility layer
+- [x] Core orchestrator + skill loader
+- [x] Docker container execution
+- [x] OpenClaw skill compatibility layer
 - [ ] AI HAT+ 2 accelerated Whisper
 - [ ] GPIO / hardware module skills (lights, sensors, displays)
 - [ ] Camera + vision skills via AI HAT+ 2
