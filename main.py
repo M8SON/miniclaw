@@ -33,8 +33,12 @@ def run_voice_mode(orchestrator):
     """Run the assistant in voice mode with microphone input."""
     from core.voice import VoiceInterface
 
+    wake_phrase = os.getenv("WAKE_PHRASE", "hey miniclaw")
+
     voice = VoiceInterface(
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
+        wake_model=os.getenv("WAKE_MODEL", "tiny"),
+        wake_phrase=wake_phrase,
         enable_tts=os.getenv("ENABLE_TTS", "true").lower() == "true",
         tts_model_path=os.getenv(
             "TTS_MODEL_PATH", "models/en_GB-cori-medium.onnx"
@@ -46,7 +50,7 @@ def run_voice_mode(orchestrator):
     print("\n" + "=" * 60)
     print("  MiniClaw")
     print("=" * 60)
-    print("\n  Speak naturally. I will respond when you finish.")
+    print(f"\n  Wake phrase: '{wake_phrase}'")
     print("  Say 'goodbye' or 'stop' to exit.")
     print("  Press Ctrl+C to quit.\n")
     print("=" * 60)
@@ -56,14 +60,18 @@ def run_voice_mode(orchestrator):
     if skills:
         print(f"\n  Loaded {len(skills)} skill(s):")
         for s in skills:
-            fmt_tag = "native" if s["format"] == "native" else "openclaw"
-            print(f"    - {s['name']} [{fmt_tag}]")
+            print(f"    - {s['name']}")
     print()
 
     try:
         while True:
-            # Listen
-            print("Listening...")
+            # Wait for wake word
+            print(f"Waiting for wake phrase: '{wake_phrase}'...")
+            detected = voice.wait_for_wake_word()
+            if not detected:
+                break  # Ctrl+C
+
+            print("Wake word detected — listening...")
             transcription = voice.listen()
 
             if not transcription:
@@ -99,8 +107,7 @@ def run_text_mode(orchestrator):
     if skills:
         print(f"\n  Loaded {len(skills)} skill(s):")
         for s in skills:
-            fmt_tag = "native" if s["format"] == "native" else "openclaw"
-            print(f"    - {s['name']} [{fmt_tag}]")
+            print(f"    - {s['name']}")
 
     print("\n  Type your message. Type 'quit' to exit.\n")
 
@@ -140,10 +147,10 @@ def list_skills(orchestrator):
         print("No skills loaded.")
         return
 
-    print(f"\n{'Name':<20} {'Format':<12} {'Directory':<40} Description")
-    print("-" * 100)
+    print(f"\n{'Name':<20} {'Directory':<40} Description")
+    print("-" * 80)
     for s in skills:
-        print(f"{s['name']:<20} {s['format']:<12} {s['dir']:<40} {s['description'][:40]}")
+        print(f"{s['name']:<20} {s['dir']:<40} {s['description'][:40]}")
     print()
 
 
