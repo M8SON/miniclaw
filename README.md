@@ -168,10 +168,12 @@ MiniClaw/
 - [x] Core orchestrator + skill loader
 - [x] Docker container execution
 - [x] OpenClaw skill compatibility layer
-- [ ] AI HAT+ 2 accelerated Whisper
+- [x] Wake word detection (whisper-tiny sliding window)
+- [x] Conversation session mode (stay active between follow-ups)
+- [ ] AI HAT+ 2 accelerated Whisper (offload STT to Hailo-8L NPU)
+- [ ] Swap whisper-tiny wake model for a lightweight dedicated wake word model once HAT+ 2 support matures
 - [ ] GPIO / hardware module skills (lights, sensors, displays)
 - [ ] Camera + vision skills via AI HAT+ 2
-- [ ] Wake word detection
 - [ ] Web dashboard for skill management
 - [ ] 3D printable case design
 - [ ] Community skill registry
