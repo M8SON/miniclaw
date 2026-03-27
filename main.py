@@ -33,7 +33,7 @@ def run_voice_mode(orchestrator):
     """Run the assistant in voice mode with microphone input."""
     from core.voice import VoiceInterface
 
-    wake_phrase = os.getenv("WAKE_PHRASE", "hey computer")
+    wake_phrase = os.getenv("WAKE_PHRASE", "computer")
 
     voice = VoiceInterface(
         whisper_model=os.getenv("WHISPER_MODEL", "base"),

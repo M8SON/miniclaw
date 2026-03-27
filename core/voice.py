@@ -48,7 +48,7 @@ class VoiceInterface:
         self,
         whisper_model: str = "base",
         wake_model: str = "tiny",
-        wake_phrase: str = "hey computer",
+        wake_phrase: str = "computer",
         enable_tts: bool = True,
         tts_voice: str = "af_heart",
         silence_threshold: int = 1000,
@@ -58,6 +58,11 @@ class VoiceInterface:
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
         self.wake_phrase = wake_phrase.lower().strip()
+
+        # Shared PyAudio stream passed from wake detection to listen()
+        # to avoid the teardown/setup gap between the two phases.
+        self._shared_audio = None
+        self._shared_stream = None
 
         logger.info("Loading Whisper wake model: %s", wake_model)
         self.wake_model = whisper.load_model(wake_model)
@@ -81,6 +86,9 @@ class VoiceInterface:
         Continuously records audio in a sliding 2-second window and runs
         whisper-tiny on each window. Returns True when the wake phrase is heard,
         False if interrupted by Ctrl+C.
+
+        On detection the PyAudio stream is kept open and stored in self._shared_stream
+        so that listen() can start capturing immediately with no gap.
         """
         audio = pyaudio.PyAudio()
         stream = audio.open(
@@ -113,10 +121,9 @@ class VoiceInterface:
                 window = np.concatenate(buffer)
                 if len(window) > window_samples:
                     window = window[-window_samples:]
-                    # Trim buffer to avoid unbounded growth
                     buffer = [window]
 
-                # Transcribe window with tiny model (no temp file needed)
+                # Transcribe window with tiny model
                 audio_float = window.astype(np.float32) / 32768.0
                 result = self.wake_model.transcribe(
                     audio_float,
@@ -130,9 +137,9 @@ class VoiceInterface:
 
                 if self.wake_phrase in transcript:
                     logger.info("Wake phrase detected: '%s'", transcript)
-                    stream.stop_stream()
-                    stream.close()
-                    audio.terminate()
+                    # Keep stream open — listen() will use it immediately
+                    self._shared_audio = audio
+                    self._shared_stream = stream
                     return True
 
         except KeyboardInterrupt:
@@ -145,10 +152,11 @@ class VoiceInterface:
         """
         Record audio until silence is detected, then transcribe with the full model.
 
+        Reuses the stream left open by wait_for_wake_word() if available, so
+        recording starts instantly with no setup gap.
+
         max_wait_seconds: give up and return None if no speech starts within this many
         seconds (0 = wait forever). Used for conversation idle timeout.
-
-        Returns transcribed text, or None if nothing intelligible was captured.
         """
         audio_file = self._record_until_silence(max_wait_seconds=max_wait_seconds)
         transcription = self._transcribe(audio_file)
@@ -197,17 +205,24 @@ class VoiceInterface:
     def _record_until_silence(self, max_wait_seconds: float = 0) -> str:
         """Record audio with automatic silence detection, return temp WAV file path.
 
+        Reuses self._shared_stream if set by wait_for_wake_word(), then clears it.
         max_wait_seconds: stop early if no speech starts within this window (0 = wait forever).
         """
-        audio = pyaudio.PyAudio()
-
-        stream = audio.open(
-            format=self.FORMAT,
-            channels=self.CHANNELS,
-            rate=self.RATE,
-            input=True,
-            frames_per_buffer=self.CHUNK,
-        )
+        # Reuse the open stream from wake detection if available
+        if self._shared_stream is not None:
+            audio = self._shared_audio
+            stream = self._shared_stream
+            self._shared_audio = None
+            self._shared_stream = None
+        else:
+            audio = pyaudio.PyAudio()
+            stream = audio.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                input=True,
+                frames_per_buffer=self.CHUNK,
+            )
 
         logger.info("Recording...")
 
