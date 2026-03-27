@@ -6,87 +6,101 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MiniClaw is a modular, skill-based voice assistant designed for Raspberry Pi. Skills are defined as markdown files and executed in sandboxed Docker containers. Claude API handles reasoning and tool selection.
 
+**Target hardware:** Raspberry Pi 5 (8-16GB RAM) with NVMe SSD, Raspberry Pi AI HAT+ 2 (Hailo-8L NPU for accelerated Whisper), USB microphone, and speaker.
+
 ## Running the Project
 
 ```bash
-# Setup
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # then fill in API keys
-
-# Run modes
-python3 main.py              # Voice mode (requires microphone + Whisper + Piper)
-python3 main.py --text       # Text-only mode (no audio dependencies required)
-python3 main.py --list       # List loaded skills and exit
-python3 main.py --skills-dir /path/to/skills  # Load additional skills from path
-
-# Build skill containers (required before use)
-docker build -t miniclaw/weather containers/weather/
-docker build -t miniclaw/web-search containers/web_search/
-docker build -t miniclaw/spotify containers/spotify/
+./run.sh          # text mode (default) — handles venv, deps, and container builds automatically
+./run.sh --voice  # voice mode (requires microphone + Piper TTS model)
+./run.sh --list   # list loaded skills and exit
 ```
 
-There are no test suites, linters, or Makefiles — development is run directly with Python.
+For manual control:
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env  # fill in API keys
+python3 main.py --text
+```
+
+There are no test suites, linters, or Makefiles.
 
 ## Architecture
 
-The main flow is:
-
 ```
-User input → Whisper STT → Claude (reasoning + tool selection)
+Microphone → Whisper STT → Claude (reasoning + tool selection)
   → Docker container (skill execution) → Claude (summarize result)
   → Piper TTS → Speaker
 ```
 
 ### Core Modules (`core/`)
 
-- **`orchestrator.py`** — Central coordinator. Manages Claude API calls, the tool-use loop (up to 10 rounds), conversation history, and routing tool calls to containers. The system prompt is built by prepending each skill's full markdown body so Claude knows when and how to invoke it.
-- **`skill_loader.py`** — Parses `SKILL.md` files from multiple directories with precedence (workspace > `~/.miniclaw/skills` > bundled). Checks skill eligibility by verifying required env vars and binaries. Builds Claude tool definitions from skill metadata.
-- **`container_manager.py`** — Manages Docker container lifecycle. Spins up containers per-call, passes `SKILL_INPUT` as a JSON env var, collects stdout, and tears down. Two execution modes: `native` (purpose-built image from `config.yaml`) and `openclaw_compat` (generic executor with skill dir mounted).
+- **`orchestrator.py`** — Central coordinator. Manages Claude API calls, the tool-use loop (up to 10 rounds), conversation history, and routing tool calls to containers. The system prompt includes each skill's full markdown body so Claude knows when and how to invoke it.
+- **`skill_loader.py`** — Loads skills from `skills/`. Every skill must have both `SKILL.md` and `config.yaml` — skills missing `config.yaml` are skipped with a warning. Checks eligibility via `requires.env`, `requires.bins`, `requires.anyBins`, and `requires.os`.
+- **`container_manager.py`** — Single execution path: spins up the skill's container, passes `SKILL_INPUT` as a JSON env var, collects stdout, tears down. All skills use the same model.
 - **`voice.py`** — Wraps Whisper (STT) and Piper (TTS). Records 16kHz mono audio, detects silence, transcribes, and speaks responses via `aplay`.
 
 ### Skill Structure
 
-Each skill lives in `skills/<name>/` and has two files:
+Every skill follows the same layout:
 
-**`SKILL.md`** — YAML frontmatter + markdown body:
+```
+skills/<name>/
+    SKILL.md      ← Claude routing instructions
+    config.yaml   ← Container execution config (required)
+
+containers/<name>/
+    app.py        ← Execution logic (reads SKILL_INPUT, prints to stdout)
+    Dockerfile    ← Builds FROM miniclaw/base:latest
+```
+
+**`SKILL.md`** frontmatter fields:
 ```yaml
 ---
 name: skill_name
-description: Brief description
+description: Brief description for Claude
 requires:
-  env: [ENV_VAR_NAME]
+  env: [ENV_VAR_NAME]       # all must be set
+  bins: [binary_name]       # all must exist on PATH
+  anyBins: [a, b]           # at least one must exist
+  os: [linux, darwin]       # OS constraint
 ---
-## When to use
-...
-## Inputs
-```yaml
-type: object
-properties:
-  query: {type: string}
-required: [query]
-```
-## How to respond
-...
 ```
 
-**`config.yaml`** — Execution config:
+**`config.yaml`** fields:
 ```yaml
 type: native
 image: miniclaw/skill-name:latest
 env_passthrough: [ENV_VAR_NAME]
 timeout_seconds: 15
+devices: []                 # e.g. [/dev/snd] for audio skills
 ```
 
-Each skill also has a container implementation in `containers/<name>/` with `app.py` and `Dockerfile`. The container reads `SKILL_INPUT` (JSON) and writes results to stdout.
+**`Dockerfile`** always starts with the shared base:
+```dockerfile
+FROM miniclaw/base:latest
+# add skill-specific deps here
+COPY app.py /app/app.py
+WORKDIR /app
+CMD ["python", "app.py"]
+```
+
+### Container Images
+
+- **`miniclaw/base:latest`** — Shared base (`python:3.11-slim` + `requests`). Built first; all skill containers layer on top to minimise disk footprint on the Pi.
+- **`miniclaw/weather:latest`** — OpenWeatherMap weather lookups
+- **`miniclaw/web-search:latest`** — Brave Search web queries
+- **`miniclaw/soundcloud:latest`** — SoundCloud playback via yt-dlp + mpv; requires `/dev/snd` device passthrough
 
 ### Container Security
 
-All containers run with: `--rm --memory=256m --cpus=1.0 --read-only --tmpfs=/tmp:size=64m --security-opt=no-new-privileges`
+All containers run with:
+`--rm --memory=256m --cpus=1.0 --read-only --tmpfs=/tmp:size=64m --security-opt=no-new-privileges`
 
-### Key Behaviors
+### Key Behaviours
 
-- **Skill eligibility**: Skills are silently skipped if required env vars or binaries are missing — graceful degradation is intentional.
-- **System prompt**: Claude is instructed to avoid asterisks, emojis, and markdown (responses go through TTS).
-- **Tool input**: Always JSON via `SKILL_INPUT` env var; output is plain text or JSON to stdout.
-- **OpenClaw compatibility**: `skill_loader.py` also parses OpenClaw-format `SKILL.md` files and wraps them in a generic executor container.
+- **Skill eligibility**: Skills missing required env vars or binaries are skipped silently — graceful degradation is intentional for optional skills.
+- **System prompt**: Claude is instructed to avoid markdown, asterisks, and emojis — responses go through Piper TTS.
+- **Tool input/output**: Input is always JSON via `SKILL_INPUT` env var; output is plain text or JSON printed to stdout.
+- **OpenClaw porting**: Community OpenClaw skills can be ported by adding a `config.yaml` and `Dockerfile` alongside their `SKILL.md`. Raw drop-in without a container config is not supported.

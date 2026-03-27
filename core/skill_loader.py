@@ -1,13 +1,12 @@
 """
-Skill Loader - Parses SKILL.md files in both native and OpenClaw-compatible formats.
+Skill Loader - Parses SKILL.md files and builds Claude tool definitions.
 
-Scans skill directories, checks eligibility based on requirements (env vars, 
-binaries, OS), and builds Claude tool definitions for the orchestrator.
+Every skill must have both SKILL.md and config.yaml in its directory.
+Skills missing config.yaml are skipped with a warning.
 
-Supports three tiers:
-  1. Native skills   - SKILL.md + config.yaml (Docker-routed execution)
-  2. OpenClaw skills  - SKILL.md with OpenClaw metadata (compatibility layer)
-  3. Community skills - Either format, user-contributed
+Scans skill directories, checks eligibility based on requirements
+(env vars, binaries, OS), and builds Claude tool definitions for
+the orchestrator.
 """
 
 import os
@@ -32,7 +31,6 @@ class Skill:
         instructions: str,
         tool_definition: dict,
         execution_config: dict,
-        source_format: str,
         skill_dir: str,
         metadata: Optional[dict] = None,
     ):
@@ -41,17 +39,20 @@ class Skill:
         self.instructions = instructions
         self.tool_definition = tool_definition
         self.execution_config = execution_config
-        self.source_format = source_format  # "native" or "openclaw"
         self.skill_dir = skill_dir
         self.metadata = metadata or {}
 
     def __repr__(self):
-        return f"Skill(name={self.name!r}, format={self.source_format!r})"
+        return f"Skill(name={self.name!r})"
 
 
 class SkillLoader:
     """
     Loads skills from one or more directories.
+
+    Every skill directory must contain:
+      - SKILL.md  : Claude routing instructions
+      - config.yaml: Container execution config
 
     Precedence (highest first):
       1. workspace skills  (./skills)
@@ -59,10 +60,9 @@ class SkillLoader:
       3. bundled skills     (installed with the package)
 
     A skill with the same name in a higher-precedence directory
-    shadows the lower one, matching OpenClaw's override behaviour.
+    shadows the lower one.
     """
 
-    # Directories scanned in order of precedence (highest first)
     DEFAULT_SEARCH_PATHS = [
         Path("./skills"),
         Path.home() / ".miniclaw" / "skills",
@@ -80,7 +80,6 @@ class SkillLoader:
     def load_all(self) -> dict[str, Skill]:
         """Scan all search paths and return eligible skills keyed by name."""
 
-        # Walk paths in reverse so higher-precedence dirs overwrite
         for search_path in reversed(self.search_paths):
             if not search_path.is_dir():
                 continue
@@ -115,39 +114,29 @@ class SkillLoader:
         """Parse a single skill directory and return a Skill or None."""
 
         skill_md = skill_dir / "SKILL.md"
-        raw = skill_md.read_text(encoding="utf-8")
+        config_path = skill_dir / "config.yaml"
 
-        # Split YAML frontmatter from markdown body
+        raw = skill_md.read_text(encoding="utf-8")
         frontmatter, body = self._parse_frontmatter(raw)
         if frontmatter is None:
-            logger.warning("No valid frontmatter in %s", skill_md)
+            logger.warning("No valid frontmatter in %s, skipping", skill_md)
             return None
 
         name = frontmatter.get("name", skill_dir.name)
         description = frontmatter.get("description", "")
 
-        # Detect format: native skills have a config.yaml alongside SKILL.md
-        config_path = skill_dir / "config.yaml"
-        is_native = config_path.exists()
-        source_format = "native" if is_native else "openclaw"
+        if not config_path.exists():
+            logger.warning(
+                "Skill '%s' has no config.yaml — all skills require a container config, skipping",
+                name,
+            )
+            return None
 
-        # Check eligibility
-        if not self._check_eligible(frontmatter, source_format):
+        if not self._check_eligible(frontmatter):
             logger.info("Skill '%s' not eligible on this system, skipping", name)
             return None
 
-        # Build execution config
-        if is_native:
-            execution_config = yaml.safe_load(
-                config_path.read_text(encoding="utf-8")
-            ) or {}
-        else:
-            # OpenClaw skill - wrap in container execution layer
-            execution_config = self._build_openclaw_execution_config(
-                frontmatter, skill_dir
-            )
-
-        # Build Claude tool definition
+        execution_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         tool_definition = self._build_tool_definition(name, description, body)
 
         return Skill(
@@ -156,20 +145,15 @@ class SkillLoader:
             instructions=body,
             tool_definition=tool_definition,
             execution_config=execution_config,
-            source_format=source_format,
             skill_dir=str(skill_dir),
             metadata=frontmatter.get("metadata", {}),
         )
 
     def _parse_frontmatter(self, raw: str) -> tuple[dict | None, str]:
-        """
-        Split a SKILL.md into (frontmatter_dict, markdown_body).
-        Supports the standard --- delimited YAML block.
-        """
+        """Split a SKILL.md into (frontmatter_dict, markdown_body)."""
         pattern = r"^---\s*\n(.*?)\n---\s*\n(.*)$"
         match = re.match(pattern, raw, re.DOTALL)
         if not match:
-            # No frontmatter - treat entire file as body with empty metadata
             return {}, raw
 
         try:
@@ -184,54 +168,45 @@ class SkillLoader:
     # Eligibility checking
     # ------------------------------------------------------------------
 
-    def _check_eligible(self, frontmatter: dict, source_format: str) -> bool:
+    def _check_eligible(self, frontmatter: dict) -> bool:
         """
         Check whether a skill is eligible to run on this system.
-        
-        Supports both native config.yaml requirements and OpenClaw-style
-        metadata.openclaw.requires blocks.
+
+        Reads the top-level requires block:
+          requires:
+            env:     [LIST]     # all must be set
+            bins:    [LIST]     # all must exist on PATH
+            anyBins: [LIST]     # at least one must exist on PATH
+            os:      [LIST]     # linux | darwin | win32
         """
-
-        # OpenClaw-style requirements live under metadata.openclaw.requires
-        if source_format == "openclaw":
-            requires = (
-                frontmatter.get("metadata", {})
-                .get("openclaw", {})
-                .get("requires", {})
-            )
-        else:
-            requires = frontmatter.get("requires", {})
-
+        requires = frontmatter.get("requires", {})
         if not requires:
             return True
 
-        # Check required environment variables
-        required_env = requires.get("env", [])
-        for var in required_env:
+        # All env vars must be set
+        for var in requires.get("env", []):
             if not os.environ.get(var):
                 logger.debug("Skill missing env var: %s", var)
                 return False
 
-        # Check required binaries on PATH (all must exist)
-        required_bins = requires.get("bins", [])
-        for binary in required_bins:
+        # All binaries must exist
+        for binary in requires.get("bins", []):
             if not shutil.which(binary):
                 logger.debug("Skill missing binary: %s", binary)
                 return False
 
-        # Check anyBins (at least one must exist)
+        # At least one binary must exist
         any_bins = requires.get("anyBins", [])
         if any_bins and not any(shutil.which(b) for b in any_bins):
             logger.debug("Skill missing all anyBins: %s", any_bins)
             return False
 
-        # Check OS constraint
+        # OS constraint
         required_os = requires.get("os", [])
         if required_os:
             current_os = platform.system().lower()
             os_map = {"darwin": "darwin", "linux": "linux", "windows": "win32"}
-            mapped = os_map.get(current_os, current_os)
-            if mapped not in required_os:
+            if os_map.get(current_os, current_os) not in required_os:
                 logger.debug("Skill not supported on OS: %s", current_os)
                 return False
 
@@ -241,36 +216,21 @@ class SkillLoader:
     # Tool definition building
     # ------------------------------------------------------------------
 
-    def _build_tool_definition(
-        self, name: str, description: str, body: str
-    ) -> dict:
-        """
-        Build a Claude-compatible tool definition from skill metadata.
-
-        Scans the markdown body for an ## Inputs or ## Parameters section
-        to extract input schema. Falls back to a generic single-input schema.
-        """
-
-        # Look for explicitly defined parameters in the body
-        input_schema = self._extract_input_schema(body)
-
+    def _build_tool_definition(self, name: str, description: str, body: str) -> dict:
+        """Build a Claude-compatible tool definition from skill metadata."""
         return {
             "name": name,
             "description": description,
-            "input_schema": input_schema,
+            "input_schema": self._extract_input_schema(body),
         }
 
     def _extract_input_schema(self, body: str) -> dict:
         """
-        Try to extract structured input parameters from the markdown body.
-        
-        Looks for a ```yaml or ```json block under ## Inputs / ## Parameters.
-        Falls back to a generic {query: string} schema if nothing is found.
+        Extract input schema from an ## Inputs or ## Parameters section.
+        Falls back to a generic {query: string} schema if none found.
         """
-
-        # Look for a parameters/inputs section with a code block
-        params_pattern = r"##\s*(?:Inputs|Parameters|Input Schema)\s*\n```(?:yaml|json)\s*\n(.*?)```"
-        match = re.search(params_pattern, body, re.DOTALL | re.IGNORECASE)
+        pattern = r"##\s*(?:Inputs|Parameters|Input Schema)\s*\n```(?:yaml|json)\s*\n(.*?)```"
+        match = re.search(pattern, body, re.DOTALL | re.IGNORECASE)
 
         if match:
             try:
@@ -280,7 +240,6 @@ class SkillLoader:
             except yaml.YAMLError:
                 pass
 
-        # Default: single query/input parameter
         return {
             "type": "object",
             "properties": {
@@ -290,45 +249,4 @@ class SkillLoader:
                 }
             },
             "required": ["query"],
-        }
-
-    # ------------------------------------------------------------------
-    # OpenClaw compatibility layer
-    # ------------------------------------------------------------------
-
-    def _build_openclaw_execution_config(
-        self, frontmatter: dict, skill_dir: Path
-    ) -> dict:
-        """
-        Translate an OpenClaw skill into an execution config that our
-        container-based orchestrator understands.
-
-        OpenClaw skills expect direct host execution. We wrap them in a
-        sandboxed container with a generic executor image.
-        """
-
-        requires = (
-            frontmatter.get("metadata", {})
-            .get("openclaw", {})
-            .get("requires", {})
-        )
-
-        # Determine which env vars to pass into the container
-        env_vars = requires.get("env", []) if requires else []
-
-        # Check for a primary API key
-        primary_env = (
-            frontmatter.get("metadata", {})
-            .get("openclaw", {})
-            .get("primaryEnv", "")
-        )
-
-        return {
-            "type": "openclaw_compat",
-            "image": "miniclaw/skill-executor:latest",
-            "env_passthrough": env_vars,
-            "primary_env": primary_env,
-            "required_bins": requires.get("bins", []) if requires else [],
-            "skill_dir": str(skill_dir.resolve()),
-            "timeout_seconds": 30,
         }

@@ -212,7 +212,7 @@ class Orchestrator:
             {
                 "name": s.name,
                 "description": s.description,
-                "format": s.source_format,
+                "format": "native",
                 "dir": s.skill_dir,
             }
             for s in self.skills.values()

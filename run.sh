@@ -68,17 +68,24 @@ fi
 ok "docker available"
 
 # ── Skill containers ─────────────────────────────────────────────────────────
-# Maps image name → build context directory
+# Base image must be built first — skill containers depend on it
 
-declare -A CONTAINERS=(
+if docker image inspect miniclaw/base:latest &>/dev/null 2>&1; then
+    ok "miniclaw/base:latest"
+else
+    echo "  Building miniclaw/base:latest..."
+    docker build -t miniclaw/base:latest containers/base/ -q
+    ok "miniclaw/base:latest (built)"
+fi
+
+declare -A SKILL_CONTAINERS=(
     ["miniclaw/weather:latest"]="containers/weather"
     ["miniclaw/web-search:latest"]="containers/web_search"
     ["miniclaw/soundcloud:latest"]="containers/soundcloud"
-    ["miniclaw/skill-executor:latest"]="containers/skill-executor"
 )
 
-for image in "${!CONTAINERS[@]}"; do
-    dir="${CONTAINERS[$image]}"
+for image in "${!SKILL_CONTAINERS[@]}"; do
+    dir="${SKILL_CONTAINERS[$image]}"
     if docker image inspect "$image" &>/dev/null 2>&1; then
         ok "$image"
     else
