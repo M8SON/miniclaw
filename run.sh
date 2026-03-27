@@ -74,6 +74,7 @@ declare -A CONTAINERS=(
     ["miniclaw/weather:latest"]="containers/weather"
     ["miniclaw/web-search:latest"]="containers/web_search"
     ["miniclaw/soundcloud:latest"]="containers/soundcloud"
+    ["miniclaw/skill-executor:latest"]="containers/skill-executor"
 )
 
 for image in "${!CONTAINERS[@]}"; do

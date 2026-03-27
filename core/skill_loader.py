@@ -323,6 +323,6 @@ class SkillLoader:
             "env_passthrough": env_vars,
             "primary_env": primary_env,
             "required_bins": requires.get("bins", []) if requires else [],
-            "skill_dir": str(skill_dir),
+            "skill_dir": str(skill_dir.resolve()),
             "timeout_seconds": 30,
         }
