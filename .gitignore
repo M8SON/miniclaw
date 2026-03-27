@@ -15,6 +15,7 @@ venv/
 env/
 
 # Whisper / TTS models (downloaded at runtime)
+models/
 *.pt
 *.onnx
 *.onnx.json

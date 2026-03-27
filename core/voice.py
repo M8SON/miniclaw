@@ -38,7 +38,7 @@ class VoiceInterface:
         self,
         whisper_model: str = "base",
         enable_tts: bool = True,
-        tts_model_path: str = "/app/en_GB-cori-medium.onnx",
+        tts_model_path: str = "models/en_GB-cori-medium.onnx",
         silence_threshold: int = 1000,
         silence_duration: float = 2.0,
     ):
@@ -82,8 +82,9 @@ class VoiceInterface:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 temp_wav = f.name
 
+            piper_bin = os.environ.get("PIPER_BINARY", "piper")
             subprocess.run(
-                ["piper", "--model", self.tts_model_path, "--output_file", temp_wav],
+                [piper_bin, "--model", self.tts_model_path, "--output_file", temp_wav],
                 input=text.encode(),
                 check=True,
                 stderr=subprocess.DEVNULL,

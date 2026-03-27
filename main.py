@@ -37,7 +37,7 @@ def run_voice_mode(orchestrator):
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
         enable_tts=os.getenv("ENABLE_TTS", "true").lower() == "true",
         tts_model_path=os.getenv(
-            "TTS_MODEL_PATH", "/app/en_GB-cori-medium.onnx"
+            "TTS_MODEL_PATH", "models/en_GB-cori-medium.onnx"
         ),
         silence_threshold=int(os.getenv("SILENCE_THRESHOLD", "1000")),
         silence_duration=float(os.getenv("SILENCE_DURATION", "2.0")),

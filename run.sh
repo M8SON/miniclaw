@@ -50,6 +50,26 @@ else
     ok "dependencies present"
 fi
 
+# ── TTS voice model ───────────────────────────────────────────────────────────
+# Auto-download the Piper voice model if not present.
+# Whisper models are handled automatically by the openai-whisper package.
+
+TTS_MODEL_DIR="models"
+TTS_MODEL="$TTS_MODEL_DIR/en_GB-cori-medium.onnx"
+TTS_MODEL_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/medium/en_GB-cori-medium.onnx"
+TTS_MODEL_JSON_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/medium/en_GB-cori-medium.onnx.json"
+
+mkdir -p "$TTS_MODEL_DIR"
+
+if [ ! -f "$TTS_MODEL" ]; then
+    echo "  Downloading Piper TTS voice model (~63MB)..."
+    curl -L -o "$TTS_MODEL" "$TTS_MODEL_URL" --progress-bar
+    curl -L -o "${TTS_MODEL}.json" "$TTS_MODEL_JSON_URL" --progress-bar
+    ok "TTS model downloaded"
+else
+    ok "TTS model present"
+fi
+
 # ── Environment ──────────────────────────────────────────────────────────────
 
 if [ ! -f ".env" ]; then
@@ -99,7 +119,11 @@ done
 
 echo "──────────────────────────────"
 
-# Default to text mode if no args given
-ARGS="${@:---text}"
+# Map --voice to no args (voice is the default mode), pass everything else through
+if [ "$*" = "--voice" ]; then
+    ARGS=""
+else
+    ARGS="${@:---text}"
+fi
 
 python3 main.py $ARGS
