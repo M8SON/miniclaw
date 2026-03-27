@@ -44,7 +44,7 @@ class VoiceInterface:
         self,
         whisper_model: str = "base",
         wake_model: str = "tiny",
-        wake_phrase: str = "hey miniclaw",
+        wake_phrase: str = "hey computer",
         enable_tts: bool = True,
         tts_model_path: str = "models/en_GB-cori-medium.onnx",
         silence_threshold: int = 1000,
@@ -115,6 +115,9 @@ class VoiceInterface:
                 )
                 transcript = result["text"].lower().strip()
 
+                if transcript:
+                    logger.info("Wake window heard: '%s'", transcript)
+
                 if self.wake_phrase in transcript:
                     logger.info("Wake phrase detected: '%s'", transcript)
                     stream.stop_stream()
@@ -128,13 +131,16 @@ class VoiceInterface:
             audio.terminate()
             return False
 
-    def listen(self) -> str | None:
+    def listen(self, max_wait_seconds: float = 0) -> str | None:
         """
         Record audio until silence is detected, then transcribe with the full model.
 
+        max_wait_seconds: give up and return None if no speech starts within this many
+        seconds (0 = wait forever). Used for conversation idle timeout.
+
         Returns transcribed text, or None if nothing intelligible was captured.
         """
-        audio_file = self._record_until_silence()
+        audio_file = self._record_until_silence(max_wait_seconds=max_wait_seconds)
         transcription = self._transcribe(audio_file)
 
         try:
@@ -175,8 +181,11 @@ class VoiceInterface:
         except Exception as e:
             logger.warning("TTS error: %s", e)
 
-    def _record_until_silence(self) -> str:
-        """Record audio with automatic silence detection, return temp WAV file path."""
+    def _record_until_silence(self, max_wait_seconds: float = 0) -> str:
+        """Record audio with automatic silence detection, return temp WAV file path.
+
+        max_wait_seconds: stop early if no speech starts within this window (0 = wait forever).
+        """
         audio = pyaudio.PyAudio()
 
         stream = audio.open(
@@ -192,6 +201,8 @@ class VoiceInterface:
         frames = []
         silence_frames = 0
         silence_limit = int(self.RATE / self.CHUNK * self.silence_duration)
+        max_wait_chunks = int(self.RATE / self.CHUNK * max_wait_seconds) if max_wait_seconds else 0
+        waited_chunks = 0
         recording = False
 
         try:
@@ -209,6 +220,12 @@ class VoiceInterface:
 
                 if recording and silence_frames > silence_limit:
                     break
+
+                # Idle timeout: give up if no speech started within max_wait_seconds
+                if not recording:
+                    waited_chunks += 1
+                    if max_wait_chunks and waited_chunks > max_wait_chunks:
+                        break
 
         except KeyboardInterrupt:
             pass

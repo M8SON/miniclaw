@@ -33,7 +33,7 @@ def run_voice_mode(orchestrator):
     """Run the assistant in voice mode with microphone input."""
     from core.voice import VoiceInterface
 
-    wake_phrase = os.getenv("WAKE_PHRASE", "hey miniclaw")
+    wake_phrase = os.getenv("WAKE_PHRASE", "hey computer")
 
     voice = VoiceInterface(
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
@@ -63,35 +63,42 @@ def run_voice_mode(orchestrator):
             print(f"    - {s['name']}")
     print()
 
+    # How long to wait for follow-up speech before returning to wake word detection
+    conversation_idle_timeout = float(os.getenv("CONVERSATION_IDLE_TIMEOUT", "8"))
+
     try:
         while True:
             # Wait for wake word
-            print(f"Waiting for wake phrase: '{wake_phrase}'...")
+            print(f"\nWaiting for wake phrase: '{wake_phrase}'...")
             detected = voice.wait_for_wake_word()
             if not detected:
                 break  # Ctrl+C
 
-            print("Wake word detected — listening...")
-            transcription = voice.listen()
+            print("Listening...")
 
-            if not transcription:
-                continue
+            # Conversation session — keep listening until idle
+            while True:
+                transcription = voice.listen(max_wait_seconds=conversation_idle_timeout)
 
-            print(f"You: {transcription}")
+                if not transcription:
+                    # No speech within idle timeout — end session
+                    print("Session ended.")
+                    break
 
-            # Check for exit
-            exit_words = ["goodbye", "exit", "quit", "stop"]
-            if any(word in transcription.lower() for word in exit_words):
-                print("\nAssistant: Goodbye!")
-                voice.speak("Goodbye!")
-                break
+                print(f"You: {transcription}")
 
-            # Process through orchestrator
-            response = orchestrator.process_message(transcription)
-            print(f"Assistant: {response}\n")
+                # Check for exit
+                exit_words = ["goodbye", "exit", "quit", "stop"]
+                if any(word in transcription.lower() for word in exit_words):
+                    print("\nAssistant: Goodbye!")
+                    voice.speak("Goodbye!")
+                    return
 
-            # Speak
-            voice.speak(response)
+                response = orchestrator.process_message(transcription)
+                print(f"Assistant: {response}\n")
+                voice.speak(response)
+
+                print("Listening...")
 
     except KeyboardInterrupt:
         print("\n\nShutting down...")
