@@ -85,6 +85,12 @@ class Orchestrator:
             "- Keep responses concise for spoken delivery\n"
             "- When using tools, explain what you are doing naturally\n"
             "- Summarize tool results conversationally\n"
+            "- Your input comes from a speech-to-text system and may contain "
+            "transcription errors. If a request seems garbled, unclear, or does "
+            "not make sense as spoken language, repeat back what you heard and "
+            "ask for clarification before acting. For example: 'I heard confirm "
+            "point, did you mean confirm restart?' or 'I caught something about "
+            "X but I am not sure, could you repeat that?'\n"
         )
 
         if self.skills:
