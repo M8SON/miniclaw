@@ -11,12 +11,11 @@ invoked after the wake phrase is detected.
 import os
 import wave
 import tempfile
-import subprocess
 import logging
 
 import numpy as np
 import pyaudio
-import soundfile as sf
+import sounddevice as sd
 import whisper
 from kokoro import KPipeline
 
@@ -172,33 +171,21 @@ class VoiceInterface:
         return transcription.strip()
 
     def speak(self, text: str):
-        """Speak text aloud using Kokoro TTS."""
+        """Speak text aloud using Kokoro TTS with streaming playback.
+
+        Each Kokoro chunk is written to a sounddevice OutputStream as it is
+        generated, so the first words play immediately without waiting for the
+        full response to be synthesised.
+        """
         if not self.enable_tts or self._tts is None:
             return
 
         try:
-            chunks = []
-            for _, _, audio in self._tts(text, voice=self._tts_voice):
-                chunks.append(audio)
-
-            if not chunks:
-                return
-
-            audio_data = np.concatenate(chunks)
-
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                temp_wav = f.name
-
-            sf.write(temp_wav, audio_data, KOKORO_SAMPLE_RATE)
-
-            subprocess.run(
-                ["aplay", temp_wav],
-                check=True,
-                stderr=subprocess.DEVNULL,
-            )
-
-            os.unlink(temp_wav)
-
+            with sd.OutputStream(
+                samplerate=KOKORO_SAMPLE_RATE, channels=1, dtype="float32"
+            ) as stream:
+                for _, _, audio in self._tts(text, voice=self._tts_voice):
+                    stream.write(audio)
         except Exception as e:
             logger.warning("TTS error: %s", e)
 
