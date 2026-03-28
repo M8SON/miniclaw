@@ -1,0 +1,8 @@
+image: miniclaw/playwright-scraper:latest
+env_passthrough: []
+timeout_seconds: 45
+memory: 512m
+read_only: false
+extra_tmpfs:
+  - /dev/shm:size=256m
+devices: []

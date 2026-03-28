@@ -61,6 +61,9 @@ class ContainerManager:
             env_vars=self._collect_env_vars(config.get("env_passthrough", [])),
             devices=config.get("devices", []),
             input_data=json.dumps(tool_input),
+            memory=config.get("memory", self.memory_limit),
+            read_only=config.get("read_only", True),
+            extra_tmpfs=config.get("extra_tmpfs", []),
         )
 
         return self._run_container(cmd, tool_input, timeout)
@@ -71,19 +74,31 @@ class ContainerManager:
         env_vars: dict[str, str] | None = None,
         devices: list[str] | None = None,
         input_data: str = "",
+        memory: str | None = None,
+        read_only: bool = True,
+        extra_tmpfs: list[str] | None = None,
     ) -> list[str]:
-        """Build a docker run command with security constraints."""
+        """Build a docker run command with security constraints.
+
+        read_only and extra_tmpfs can be overridden per skill via config.yaml
+        for skills that need a writable filesystem (e.g. browser automation).
+        """
         cmd = [
             "docker", "run",
             "--rm",
             "-i",
             "--network=host",
-            f"--memory={self.memory_limit}",
+            f"--memory={memory or self.memory_limit}",
             "--cpus=1.0",
-            "--read-only",
-            "--tmpfs=/tmp:size=64m",
             "--security-opt=no-new-privileges",
         ]
+
+        if read_only:
+            cmd.append("--read-only")
+
+        cmd.extend(["--tmpfs=/tmp:size=64m"])
+        for tmpfs in (extra_tmpfs or []):
+            cmd.extend(["--tmpfs", tmpfs])
 
         if env_vars:
             for key, value in env_vars.items():

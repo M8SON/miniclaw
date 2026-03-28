@@ -92,6 +92,7 @@ declare -A SKILL_CONTAINERS=(
     ["miniclaw/weather:latest"]="containers/weather"
     ["miniclaw/web-search:latest"]="containers/web_search"
     ["miniclaw/soundcloud:latest"]="containers/soundcloud"
+    ["miniclaw/playwright-scraper:latest"]="containers/playwright_scraper"
 )
 
 for image in "${!SKILL_CONTAINERS[@]}"; do
