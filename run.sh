@@ -60,6 +60,14 @@ else
     warn "espeak-ng not found — TTS will fail. Install with: sudo apt install espeak-ng"
 fi
 
+# ── Claude Code CLI (required for voice skill installation) ──────────────────
+
+if command -v claude &>/dev/null; then
+    ok "claude $(claude --version 2>/dev/null | head -1)"
+else
+    warn "claude CLI not found — voice skill installation unavailable. Install with: npm install -g @anthropic-ai/claude-code"
+fi
+
 # ── Environment ──────────────────────────────────────────────────────────────
 
 if [ ! -f ".env" ]; then
@@ -88,15 +96,14 @@ else
     ok "miniclaw/base:latest (built)"
 fi
 
-declare -A SKILL_CONTAINERS=(
-    ["miniclaw/weather:latest"]="containers/weather"
-    ["miniclaw/web-search:latest"]="containers/web_search"
-    ["miniclaw/soundcloud:latest"]="containers/soundcloud"
-    ["miniclaw/playwright-scraper:latest"]="containers/playwright_scraper"
-)
+# Auto-discover all skill containers (any containers/<name>/Dockerfile except base)
+for dockerfile in containers/*/Dockerfile; do
+    dir="$(dirname "$dockerfile")"
+    name="$(basename "$dir")"
+    [ "$name" = "base" ] && continue
 
-for image in "${!SKILL_CONTAINERS[@]}"; do
-    dir="${SKILL_CONTAINERS[$image]}"
+    image="miniclaw/${name//_/-}:latest"
+
     if docker image inspect "$image" &>/dev/null 2>&1; then
         ok "$image"
     else

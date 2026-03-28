@@ -45,6 +45,12 @@ def run_voice_mode(orchestrator):
         silence_duration=float(os.getenv("SILENCE_DURATION", "2.0")),
     )
 
+    from core.meta_skill import MetaSkillExecutor
+    orchestrator.container_manager._meta_skill_executor = MetaSkillExecutor(
+        voice=voice,
+        orchestrator=orchestrator,
+    )
+
     voice.play_startup_sound()
 
     print("\n" + "=" * 60)

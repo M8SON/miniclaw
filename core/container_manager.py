@@ -26,6 +26,7 @@ class ContainerManager:
 
     def __init__(self, memory_limit: str = DEFAULT_MEMORY_LIMIT):
         self.memory_limit = memory_limit
+        self._meta_skill_executor = None  # injected from main.py after construction
         self._verify_docker()
 
     def _verify_docker(self):
@@ -50,6 +51,11 @@ class ContainerManager:
         Output is read from stdout as plain text or JSON.
         """
         config = skill.execution_config
+
+        # Native skills bypass Docker entirely
+        if config.get("type") == "native":
+            return self._execute_native_skill(skill, tool_input)
+
         image = config.get("image", "")
         timeout = config.get("timeout_seconds", self.DEFAULT_TIMEOUT)
 
@@ -145,6 +151,14 @@ class ContainerManager:
         except Exception as e:
             logger.error("Container execution failed: %s", e)
             return f"Skill execution failed: {str(e)}"
+
+    def _execute_native_skill(self, skill, tool_input: dict) -> str:
+        """Route to a registered native (non-Docker) skill handler."""
+        if skill.name == "install_skill":
+            if self._meta_skill_executor is None:
+                return "Meta skill executor not initialised — restart MiniClaw in voice mode."
+            return self._meta_skill_executor.run(tool_input)
+        return f"No native handler registered for skill '{skill.name}'"
 
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""

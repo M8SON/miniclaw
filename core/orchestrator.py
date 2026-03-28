@@ -201,6 +201,12 @@ class Orchestrator:
                 parts.append(block.text)
         return " ".join(parts)
 
+    def reload_skills(self):
+        """Re-scan skill directories and rebuild the system prompt with any new skills."""
+        self.skills = self.skill_loader.load_all()
+        self.system_prompt = self._build_system_prompt()
+        logger.info("Skills reloaded: %d skills active", len(self.skills))
+
     def reset_conversation(self):
         """Clear conversation history."""
         self.conversation_history = []
