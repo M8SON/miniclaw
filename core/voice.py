@@ -170,32 +170,85 @@ class VoiceInterface:
 
         return transcription.strip()
 
+    def _r2_chirp(self, freq_start, freq_end, duration, volume=0.45, vibrato_hz=0, vibrato_depth=0):
+        """Frequency-sweep chirp with optional vibrato — the core R2-D2 building block.
+
+        vibrato_hz: LFO rate in Hz (0 = off). Modulates instantaneous frequency to
+        produce the characteristic wobbly droid quality.
+        vibrato_depth: frequency deviation in Hz at peak LFO swing.
+        """
+        n = int(KOKORO_SAMPLE_RATE * duration)
+        t = np.linspace(0, duration, n, False)
+        freq = np.linspace(freq_start, freq_end, n)
+        if vibrato_hz > 0:
+            freq = freq + vibrato_depth * np.sin(2 * np.pi * vibrato_hz * t)
+        phase = np.cumsum(2 * np.pi * freq / KOKORO_SAMPLE_RATE)
+        env = np.ones(n)
+        a, d = max(1, int(n * 0.08)), max(1, int(n * 0.25))
+        env[:a] = np.linspace(0, 1, a)
+        env[-d:] = np.linspace(1, 0, d)
+        return (np.sin(phase) * env * volume).astype(np.float32)
+
+    def _r2_beep(self, freq, duration, volume=0.4):
+        """Short pure-tone beep — punctuation between R2-D2 chirps."""
+        n = int(KOKORO_SAMPLE_RATE * duration)
+        t = np.linspace(0, duration, n, False)
+        env = np.ones(n)
+        a, d = max(1, int(n * 0.05)), max(1, int(n * 0.35))
+        env[:a] = np.linspace(0, 1, a)
+        env[-d:] = np.linspace(1, 0, d)
+        return (np.sin(2 * np.pi * freq * t) * env * volume).astype(np.float32)
+
     def play_startup_sound(self):
-        """Play a two-tone ascending chime to signal that models are loaded and ready."""
+        """Play an R2-D2-style happy greeting sequence on startup."""
         if not self.enable_tts:
             return
         try:
-            dur = int(KOKORO_SAMPLE_RATE * 0.15)
-            t = np.linspace(0, 0.15, dur, False)
-            envelope = np.linspace(0, 1, dur) * np.linspace(1, 0, dur)
-            tone1 = (np.sin(2 * np.pi * 660 * t) * envelope * 0.4).astype(np.float32)
-            tone2 = (np.sin(2 * np.pi * 880 * t) * envelope * 0.4).astype(np.float32)
-            gap = np.zeros(int(KOKORO_SAMPLE_RATE * 0.05), dtype=np.float32)
-            sd.play(np.concatenate([tone1, gap, tone2]), samplerate=KOKORO_SAMPLE_RATE)
+            g  = np.zeros(int(KOKORO_SAMPLE_RATE * 0.04), dtype=np.float32)
+            gs = np.zeros(int(KOKORO_SAMPLE_RATE * 0.02), dtype=np.float32)
+            sound = np.concatenate([
+                # Opening ascending wobble sweep
+                self._r2_chirp(480, 1600, 0.17, vibrato_hz=10, vibrato_depth=90),
+                g,
+                # Staccato arpeggio burst
+                self._r2_beep(1800, 0.06), gs,
+                self._r2_beep(1400, 0.05), gs,
+                self._r2_beep(2000, 0.05), gs,
+                self._r2_beep(1600, 0.05),
+                g,
+                # Descending wobble — question/acknowledgement feel
+                self._r2_chirp(1700, 750, 0.15, vibrato_hz=13, vibrato_depth=110),
+                g,
+                # Rising two-note finish — happy affirmation
+                self._r2_beep(1500, 0.06), gs,
+                self._r2_beep(2200, 0.10, volume=0.5),
+            ])
+            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE)
             sd.wait()
         except Exception as e:
             logger.warning("Startup sound error: %s", e)
 
     def play_thinking_sound(self):
-        """Play a brief tone to indicate the request is being processed."""
+        """Play a short R2-D2-style curious warble while processing a request."""
         if not self.enable_tts:
             return
         try:
-            dur = int(KOKORO_SAMPLE_RATE * 0.12)
-            t = np.linspace(0, 0.12, dur, False)
-            envelope = np.linspace(0, 1, dur) * np.linspace(1, 0, dur)
-            tone = (np.sin(2 * np.pi * 523 * t) * envelope * 0.35).astype(np.float32)
-            sd.play(tone, samplerate=KOKORO_SAMPLE_RATE)
+            g  = np.zeros(int(KOKORO_SAMPLE_RATE * 0.03), dtype=np.float32)
+            gs = np.zeros(int(KOKORO_SAMPLE_RATE * 0.02), dtype=np.float32)
+            sound = np.concatenate([
+                # Quick ascending wobble — "hmm, let me think"
+                self._r2_chirp(780, 1700, 0.11, vibrato_hz=9, vibrato_depth=80),
+                g,
+                # Staccato pair
+                self._r2_beep(1900, 0.06), gs,
+                self._r2_beep(1500, 0.05),
+                g,
+                # Descending wobble close
+                self._r2_chirp(1600, 900, 0.11, vibrato_hz=11, vibrato_depth=90),
+                g,
+                self._r2_beep(1650, 0.07),
+            ])
+            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE)
             sd.wait()
         except Exception as e:
             logger.warning("Thinking sound error: %s", e)
