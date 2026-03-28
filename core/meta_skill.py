@@ -106,12 +106,6 @@ class MetaSkillExecutor:
             _cleanup(skill_name)
             return f"Docker build failed. {build_msg[:150]}"
 
-        # Commit after successful build
-        try:
-            _git_commit(skill_name)
-        except Exception as e:
-            logger.warning("Git commit failed (non-fatal): %s", e)
-
         # ── Phase 3: Confirm restart ──────────────────────────────────────
         self._speak(
             f"Build complete. Say 'confirm restart' to load {spoken_name} now, or 'cancel'."
@@ -315,20 +309,6 @@ def _trigger_build(skill_name: str) -> tuple[bool, str]:
         return result.returncode == 0, output
     except subprocess.TimeoutExpired:
         return False, "Docker build timed out after 5 minutes."
-
-
-def _git_commit(skill_name: str):
-    """Commit generated skill files for audit trail and reversibility."""
-    paths = [
-        f"skills/{skill_name}",
-        f"containers/{skill_name}",
-    ]
-    subprocess.run(["git", "add"] + paths, cwd=str(REPO_ROOT), check=True)
-    subprocess.run(
-        ["git", "commit", "-m", f"feat: add {skill_name} skill (voice-installed)"],
-        cwd=str(REPO_ROOT),
-        check=True,
-    )
 
 
 def _cleanup(skill_name: str):
