@@ -170,6 +170,36 @@ class VoiceInterface:
 
         return transcription.strip()
 
+    def play_startup_sound(self):
+        """Play a two-tone ascending chime to signal that models are loaded and ready."""
+        if not self.enable_tts:
+            return
+        try:
+            dur = int(KOKORO_SAMPLE_RATE * 0.15)
+            t = np.linspace(0, 0.15, dur, False)
+            envelope = np.linspace(0, 1, dur) * np.linspace(1, 0, dur)
+            tone1 = (np.sin(2 * np.pi * 660 * t) * envelope * 0.4).astype(np.float32)
+            tone2 = (np.sin(2 * np.pi * 880 * t) * envelope * 0.4).astype(np.float32)
+            gap = np.zeros(int(KOKORO_SAMPLE_RATE * 0.05), dtype=np.float32)
+            sd.play(np.concatenate([tone1, gap, tone2]), samplerate=KOKORO_SAMPLE_RATE)
+            sd.wait()
+        except Exception as e:
+            logger.warning("Startup sound error: %s", e)
+
+    def play_thinking_sound(self):
+        """Play a brief tone to indicate the request is being processed."""
+        if not self.enable_tts:
+            return
+        try:
+            dur = int(KOKORO_SAMPLE_RATE * 0.12)
+            t = np.linspace(0, 0.12, dur, False)
+            envelope = np.linspace(0, 1, dur) * np.linspace(1, 0, dur)
+            tone = (np.sin(2 * np.pi * 523 * t) * envelope * 0.35).astype(np.float32)
+            sd.play(tone, samplerate=KOKORO_SAMPLE_RATE)
+            sd.wait()
+        except Exception as e:
+            logger.warning("Thinking sound error: %s", e)
+
     def speak(self, text: str):
         """Speak text aloud using Kokoro TTS with streaming playback.
 

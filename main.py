@@ -45,6 +45,8 @@ def run_voice_mode(orchestrator):
         silence_duration=float(os.getenv("SILENCE_DURATION", "2.0")),
     )
 
+    voice.play_startup_sound()
+
     print("\n" + "=" * 60)
     print("  MiniClaw")
     print("=" * 60)
@@ -92,6 +94,7 @@ def run_voice_mode(orchestrator):
                     voice.speak("Goodbye!")
                     return
 
+                voice.play_thinking_sound()
                 response = orchestrator.process_message(transcription)
                 print(f"Assistant: {response}\n")
                 voice.speak(response)
