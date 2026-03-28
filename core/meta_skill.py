@@ -129,43 +129,26 @@ class MetaSkillExecutor:
 
     def _confirm(self, expected_phrase: str) -> bool:
         """
-        Listen for up to CONFIRM_TIMEOUT seconds, with up to 2 retries.
+        Listen for up to CONFIRM_TIMEOUT seconds.
         Returns True only if all words of expected_phrase appear in the transcript.
-        Returns False on timeout, silence, 'cancel', or three failed attempts.
-
-        If something is heard but doesn't match, the assistant asks again rather
-        than silently cancelling — so mishearing 'confirm restart' as 'confirm point'
-        prompts a retry instead of aborting the install.
+        Returns False on timeout, silence, 'cancel', or a non-matching response.
         """
         if self.voice is None:
             logger.info("[meta_skill] voice not available — auto-cancelling confirmation")
             return False
 
+        transcript = self.voice.listen(max_wait_seconds=CONFIRM_TIMEOUT)
+
+        if not transcript:
+            self._speak("No response received. Cancelling.")
+            return False
+
+        t = transcript.lower()
+        if "cancel" in t:
+            return False
+
         required = expected_phrase.lower().split()
-
-        for attempt in range(3):
-            transcript = self.voice.listen(max_wait_seconds=CONFIRM_TIMEOUT)
-
-            if not transcript:
-                self._speak("No response received. Cancelling.")
-                return False
-
-            t = transcript.lower()
-
-            if "cancel" in t:
-                return False
-
-            if all(w in t for w in required):
-                return True
-
-            # Heard something but it didn't match — ask again
-            if attempt < 2:
-                self._speak(
-                    f"I didn't catch that. Please say '{expected_phrase}' to continue, or 'cancel'."
-                )
-
-        self._speak("Could not confirm. Cancelling.")
-        return False
+        return all(w in t for w in required)
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
