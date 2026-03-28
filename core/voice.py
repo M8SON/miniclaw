@@ -50,6 +50,7 @@ class VoiceInterface:
         wake_phrase: str = "computer",
         enable_tts: bool = True,
         tts_voice: str = "af_heart",
+        tts_speed: float = 1.0,
         silence_threshold: int = 1000,
         silence_duration: float = 2.0,
     ):
@@ -73,6 +74,7 @@ class VoiceInterface:
             logger.info("Loading Kokoro TTS pipeline (voice: %s)...", tts_voice)
             self._tts = KPipeline(lang_code="a")
             self._tts_voice = tts_voice
+            self._tts_speed = tts_speed
         else:
             self._tts = None
 
@@ -267,7 +269,7 @@ class VoiceInterface:
             with sd.OutputStream(
                 samplerate=KOKORO_SAMPLE_RATE, channels=1, dtype="float32"
             ) as stream:
-                for _, _, audio in self._tts(text, voice=self._tts_voice):
+                for _, _, audio in self._tts(text, voice=self._tts_voice, speed=self._tts_speed):
                     stream.write(audio)
         except Exception as e:
             logger.warning("TTS error: %s", e)
