@@ -1,0 +1,4 @@
+image: miniclaw/skill-tells-random:latest
+env_passthrough: []
+timeout_seconds: 10
+devices: []
