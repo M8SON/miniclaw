@@ -132,10 +132,14 @@ class SkillLoader:
             )
             return None
 
-        skip_reason = self._check_eligible(frontmatter)
+        skip_reason, missing_env_vars = self._check_eligible(frontmatter)
         if skip_reason:
             logger.info("Skill '%s' not eligible: %s", name, skip_reason)
-            self.skipped_skills[name] = {"description": description, "reason": skip_reason}
+            self.skipped_skills[name] = {
+                "description": description,
+                "reason": skip_reason,
+                "missing_env_vars": missing_env_vars,
+            }
             return None
 
         execution_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
@@ -169,12 +173,13 @@ class SkillLoader:
     # Eligibility checking
     # ------------------------------------------------------------------
 
-    def _check_eligible(self, frontmatter: dict) -> str | None:
+    def _check_eligible(self, frontmatter: dict) -> tuple[str | None, list[str]]:
         """
         Check whether a skill is eligible to run on this system.
 
-        Returns None if eligible, or a human-readable string describing
-        what is missing if not.
+        Returns (reason, missing_env_vars) where reason is None if eligible,
+        or a human-readable string if not. missing_env_vars is the list of
+        env var names that are unset (used to restrict set_env_var).
 
         Reads the top-level requires block:
           requires:
@@ -185,13 +190,15 @@ class SkillLoader:
         """
         requires = frontmatter.get("requires", {})
         if not requires:
-            return None
+            return None, []
 
         missing = []
+        missing_env_vars = []
 
         for var in requires.get("env", []):
             if not os.environ.get(var):
                 missing.append(f"{var} env var")
+                missing_env_vars.append(var)
 
         for binary in requires.get("bins", []):
             if not shutil.which(binary):
@@ -208,7 +215,15 @@ class SkillLoader:
             if os_map.get(current_os, current_os) not in required_os:
                 missing.append(f"OS must be one of: {', '.join(required_os)}")
 
-        return ("missing " + ", ".join(missing)) if missing else None
+        reason = ("missing " + ", ".join(missing)) if missing else None
+        return reason, missing_env_vars
+
+    def get_missing_env_vars(self) -> set[str]:
+        """Return all env var names required by currently skipped skills."""
+        result = set()
+        for info in self.skipped_skills.values():
+            result.update(info.get("missing_env_vars", []))
+        return result
 
     # ------------------------------------------------------------------
     # Tool definition building

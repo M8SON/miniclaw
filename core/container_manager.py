@@ -10,10 +10,12 @@ should not persist between calls.
 """
 
 import os
+import re
 import json
 import time
 import subprocess
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ class ContainerManager:
     def __init__(self, memory_limit: str = DEFAULT_MEMORY_LIMIT):
         self.memory_limit = memory_limit
         self._meta_skill_executor = None  # injected from main.py after construction
+        self._orchestrator = None          # injected from main.py after construction
         self._verify_docker()
 
     def _verify_docker(self):
@@ -158,7 +161,75 @@ class ContainerManager:
             if self._meta_skill_executor is None:
                 return "Meta skill executor not initialised — restart MiniClaw in voice mode."
             return self._meta_skill_executor.run(tool_input)
+        if skill.name == "set_env_var":
+            return self._execute_set_env_var(tool_input)
         return f"No native handler registered for skill '{skill.name}'"
+
+    def _execute_set_env_var(self, tool_input: dict) -> str:
+        """Write a key=value pair to .env and reload skills."""
+        key = str(tool_input.get("key", "")).strip()
+        value = str(tool_input.get("value", "")).strip()
+
+        if not key:
+            return "Error: no key provided."
+
+        if not re.match(r'^[A-Z][A-Z0-9_]*$', key):
+            return f"Error: '{key}' is not a valid environment variable name."
+
+        # Only allow keys that are actually needed by a skipped skill
+        if self._orchestrator is not None:
+            allowed = self._orchestrator.skill_loader.get_missing_env_vars()
+            if key not in allowed:
+                return (
+                    f"Error: '{key}' is not required by any unavailable skill. "
+                    f"Allowed keys: {', '.join(sorted(allowed)) or 'none'}."
+                )
+
+        # Write to .env
+        env_path = Path(".env")
+        try:
+            existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+        except OSError as e:
+            return f"Error reading .env: {e}"
+
+        lines = existing.splitlines(keepends=True)
+        new_line = f"{key}={value}\n"
+        found = False
+        for i, line in enumerate(lines):
+            if re.match(rf'^{re.escape(key)}\s*=', line):
+                lines[i] = new_line
+                found = True
+                break
+        if not found:
+            if lines and not lines[-1].endswith("\n"):
+                lines.append("\n")
+            lines.append(new_line)
+
+        try:
+            env_path.write_text("".join(lines), encoding="utf-8")
+        except OSError as e:
+            return f"Error writing .env: {e}"
+
+        # Update the running process environment
+        os.environ[key] = value
+
+        # Reload skills so newly satisfied requirements take effect
+        newly_available = []
+        if self._orchestrator is not None:
+            self._orchestrator.reload_skills()
+            newly_available = [
+                name for name in self._orchestrator.skills
+                if name not in ("set_env_var", "install_skill")
+            ]
+
+        logger.info("Set env var %s and reloaded skills", key)
+
+        if self._orchestrator is not None:
+            skipped = list(self._orchestrator.skill_loader.skipped_skills.keys())
+            if skipped:
+                return f"Set {key}. Skills still unavailable: {', '.join(skipped)}."
+            return f"Set {key}. All skills are now available."
+        return f"Set {key} successfully."
 
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""

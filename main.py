@@ -209,6 +209,9 @@ def main():
         container_memory=os.getenv("CONTAINER_MEMORY", "256m"),
     )
 
+    # Inject orchestrator reference for native skills that need to reload
+    orchestrator.container_manager._orchestrator = orchestrator
+
     # Run in requested mode
     if args.list:
         list_skills(orchestrator)
