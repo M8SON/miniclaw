@@ -48,6 +48,50 @@ The system uses two layers for extensibility:
 - Active cooler
 - USB microphone
 
+## Cost
+
+### Hardware
+
+Two practical build tiers:
+
+**Budget build** — Pi 5 only, CPU inference, no NPU or SSD:
+
+| Component | Est. Cost |
+|---|---|
+| Raspberry Pi 5 (8GB) | ~$80 |
+| Official power supply (27W USB-C) | ~$12 |
+| USB microphone | ~$20 |
+| Small speaker | ~$20 |
+| **Total** | **~$132** |
+
+**Recommended build** — full setup with AI HAT+ 2 and NVMe SSD:
+
+| Component | Est. Cost |
+|---|---|
+| Raspberry Pi 5 (16GB) | ~$120 |
+| Raspberry Pi AI HAT+ 2 (Hailo-8L) | ~$70 |
+| M.2 HAT+ (NVMe adapter) | ~$12 |
+| NVMe SSD (256GB) | ~$28 |
+| Active cooler | ~$5 |
+| Official power supply (27W USB-C) | ~$12 |
+| USB microphone | ~$20 |
+| Small speaker | ~$20 |
+| Case | ~$10 |
+| **Total** | **~$297** |
+
+Prices are approximate and vary by region and retailer. The AI HAT+ 2 is optional but strongly recommended for always-on deployments — it offloads Whisper and Kokoro to the NPU, freeing the CPU and significantly reducing power draw.
+
+### Yearly Electricity
+
+See [Power Consumption](#power-consumption) below for the full breakdown. Summary:
+
+| Build | Avg draw | Annual cost (US) | Annual cost (UK) |
+|---|---|---|---|
+| Budget (CPU inference) | ~7W | ~$8/yr | ~$17/yr |
+| Recommended (NPU inference) | ~4–5W | ~$5/yr | ~$11/yr |
+
+Running costs are negligible — the hardware pays for itself in utility long before electricity becomes a concern.
+
 ## Quick Start
 
 ```bash
@@ -139,50 +183,6 @@ Key environment variables in `.env`:
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
 | `BRAVE_API_KEY` | — | Required for web search skill |
 | `OPENWEATHER_API_KEY` | — | Required for weather skill |
-
-## Cost
-
-### Hardware
-
-Two practical build tiers:
-
-**Budget build** — Pi 5 only, CPU inference, no NPU or SSD:
-
-| Component | Est. Cost |
-|---|---|
-| Raspberry Pi 5 (8GB) | ~$80 |
-| Official power supply (27W USB-C) | ~$12 |
-| USB microphone | ~$20 |
-| Small speaker | ~$20 |
-| **Total** | **~$132** |
-
-**Recommended build** — full setup with AI HAT+ 2 and NVMe SSD:
-
-| Component | Est. Cost |
-|---|---|
-| Raspberry Pi 5 (16GB) | ~$120 |
-| Raspberry Pi AI HAT+ 2 (Hailo-8L) | ~$70 |
-| M.2 HAT+ (NVMe adapter) | ~$12 |
-| NVMe SSD (256GB) | ~$28 |
-| Active cooler | ~$5 |
-| Official power supply (27W USB-C) | ~$12 |
-| USB microphone | ~$20 |
-| Small speaker | ~$20 |
-| Case | ~$10 |
-| **Total** | **~$297** |
-
-Prices are approximate and vary by region and retailer. The AI HAT+ 2 is optional but strongly recommended for always-on deployments — it offloads Whisper and Kokoro to the NPU, freeing the CPU and significantly reducing power draw.
-
-### Yearly Electricity
-
-See [Power Consumption](#power-consumption) below for the full breakdown. Summary:
-
-| Build | Avg draw | Annual cost (US) | Annual cost (UK) |
-|---|---|---|---|
-| Budget (CPU inference) | ~7W | ~$8/yr | ~$17/yr |
-| Recommended (NPU inference) | ~4–5W | ~$5/yr | ~$11/yr |
-
-Running costs are negligible — the hardware pays for itself in utility long before electricity becomes a concern.
 
 ## Power Consumption
 
