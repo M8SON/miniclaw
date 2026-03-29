@@ -42,7 +42,7 @@ The system uses two layers for extensibility:
 
 ### Recommended Hardware
 
-- Raspberry Pi 5 (16GB RAM)
+- Raspberry Pi 5 (8GB or 16GB RAM)
 - NVMe SSD via M.2 HAT+
 - Raspberry Pi AI HAT+ 2 (for accelerated Whisper + Kokoro)
 - Active cooler
@@ -135,8 +135,71 @@ Key environment variables in `.env`:
 | `SILENCE_THRESHOLD` | `1000` | Mic amplitude to count as speech |
 | `SILENCE_DURATION` | `2.0` | Seconds of silence before ending recording |
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
+| `WAKE_MODEL` | `tiny` | Wake word detection model size |
+| `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
 | `BRAVE_API_KEY` | — | Required for web search skill |
 | `OPENWEATHER_API_KEY` | — | Required for weather skill |
+
+## Cost
+
+### Hardware
+
+Two practical build tiers:
+
+**Budget build** — Pi 5 only, CPU inference, no NPU or SSD:
+
+| Component | Est. Cost |
+|---|---|
+| Raspberry Pi 5 (8GB) | ~$80 |
+| Official power supply (27W USB-C) | ~$12 |
+| USB microphone | ~$20 |
+| Small speaker | ~$20 |
+| **Total** | **~$132** |
+
+**Recommended build** — full setup with AI HAT+ 2 and NVMe SSD:
+
+| Component | Est. Cost |
+|---|---|
+| Raspberry Pi 5 (16GB) | ~$120 |
+| Raspberry Pi AI HAT+ 2 (Hailo-8L) | ~$70 |
+| M.2 HAT+ (NVMe adapter) | ~$12 |
+| NVMe SSD (256GB) | ~$28 |
+| Active cooler | ~$5 |
+| Official power supply (27W USB-C) | ~$12 |
+| USB microphone | ~$20 |
+| Small speaker | ~$20 |
+| Case | ~$10 |
+| **Total** | **~$297** |
+
+Prices are approximate and vary by region and retailer. The AI HAT+ 2 is optional but strongly recommended for always-on deployments — it offloads Whisper and Kokoro to the NPU, freeing the CPU and significantly reducing power draw.
+
+### Yearly Electricity
+
+See [Power Consumption](#power-consumption) below for the full breakdown. Summary:
+
+| Build | Avg draw | Annual cost (US) | Annual cost (UK) |
+|---|---|---|---|
+| Budget (CPU inference) | ~7W | ~$8/yr | ~$17/yr |
+| Recommended (NPU inference) | ~4–5W | ~$5/yr | ~$11/yr |
+
+Running costs are negligible — the hardware pays for itself in utility long before electricity becomes a concern.
+
+## Power Consumption
+
+MiniClaw is designed to run 24/7, so wake detection power draw is worth considering.
+
+Wake word detection runs whisper-tiny every 2 seconds on a 2-second audio window. The cost depends on whether inference runs on CPU or the AI HAT+ 2 NPU:
+
+| Mode | Avg system draw | Est. annual usage | US (~$0.13/kWh) | UK (~$0.28/kWh) |
+|---|---|---|---|---|
+| CPU inference (Pi 5 only) | ~7W | ~61 kWh | ~$8/yr | ~$17/yr |
+| NPU inference (AI HAT+ 2) | ~4–5W | ~39 kWh | ~$5/yr | ~$11/yr |
+
+**CPU mode:** whisper-tiny inference on Pi 5's Cortex-A76 takes roughly 0.3–0.8s per 2-second clip, putting wake detection at 15–40% CPU utilization continuously.
+
+**NPU mode:** the Hailo-8L handles inference in ~50–150ms at ~2–3W peak, running at roughly 10% duty cycle. This frees the CPU entirely and reduces average system draw by ~2–3W.
+
+The electricity cost is modest in either case, but NPU offload is recommended for always-on deployments — the real benefit is thermal headroom and CPU availability for skill execution.
 
 ## Project Structure
 
