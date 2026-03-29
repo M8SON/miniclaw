@@ -69,6 +69,7 @@ class SkillLoader:
     def __init__(self, search_paths: list[Path] | None = None):
         self.search_paths = search_paths or self.DEFAULT_SEARCH_PATHS
         self.skills: dict[str, Skill] = {}
+        self.skipped_skills: dict[str, dict] = {}  # name -> {description, reason}
 
     # ------------------------------------------------------------------
     # Public API
@@ -76,6 +77,8 @@ class SkillLoader:
 
     def load_all(self) -> dict[str, Skill]:
         """Scan all search paths and return eligible skills keyed by name."""
+
+        self.skipped_skills = {}
 
         for search_path in reversed(self.search_paths):
             if not search_path.is_dir():
@@ -129,8 +132,10 @@ class SkillLoader:
             )
             return None
 
-        if not self._check_eligible(frontmatter):
-            logger.info("Skill '%s' not eligible on this system, skipping", name)
+        skip_reason = self._check_eligible(frontmatter)
+        if skip_reason:
+            logger.info("Skill '%s' not eligible: %s", name, skip_reason)
+            self.skipped_skills[name] = {"description": description, "reason": skip_reason}
             return None
 
         execution_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
@@ -164,9 +169,12 @@ class SkillLoader:
     # Eligibility checking
     # ------------------------------------------------------------------
 
-    def _check_eligible(self, frontmatter: dict) -> bool:
+    def _check_eligible(self, frontmatter: dict) -> str | None:
         """
         Check whether a skill is eligible to run on this system.
+
+        Returns None if eligible, or a human-readable string describing
+        what is missing if not.
 
         Reads the top-level requires block:
           requires:
@@ -177,36 +185,30 @@ class SkillLoader:
         """
         requires = frontmatter.get("requires", {})
         if not requires:
-            return True
+            return None
 
-        # All env vars must be set
+        missing = []
+
         for var in requires.get("env", []):
             if not os.environ.get(var):
-                logger.debug("Skill missing env var: %s", var)
-                return False
+                missing.append(f"{var} env var")
 
-        # All binaries must exist
         for binary in requires.get("bins", []):
             if not shutil.which(binary):
-                logger.debug("Skill missing binary: %s", binary)
-                return False
+                missing.append(f"{binary} binary")
 
-        # At least one binary must exist
         any_bins = requires.get("anyBins", [])
         if any_bins and not any(shutil.which(b) for b in any_bins):
-            logger.debug("Skill missing all anyBins: %s", any_bins)
-            return False
+            missing.append(f"one of these binaries: {', '.join(any_bins)}")
 
-        # OS constraint
         required_os = requires.get("os", [])
         if required_os:
             current_os = platform.system().lower()
             os_map = {"darwin": "darwin", "linux": "linux", "windows": "win32"}
             if os_map.get(current_os, current_os) not in required_os:
-                logger.debug("Skill not supported on OS: %s", current_os)
-                return False
+                missing.append(f"OS must be one of: {', '.join(required_os)}")
 
-        return True
+        return ("missing " + ", ".join(missing)) if missing else None
 
     # ------------------------------------------------------------------
     # Tool definition building

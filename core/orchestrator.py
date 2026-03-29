@@ -98,6 +98,16 @@ class Orchestrator:
             for skill in self.skills.values():
                 base_prompt += f"\n### {skill.name}\n{skill.instructions}\n"
 
+        skipped = self.skill_loader.skipped_skills
+        if skipped:
+            base_prompt += "\n--- Unavailable Skills (installed but missing requirements) ---\n"
+            for name, info in skipped.items():
+                base_prompt += f"\n- {name}: {info['description']} — {info['reason']}\n"
+            base_prompt += (
+                "\nIf the user asks for something handled by an unavailable skill, "
+                "tell them what is needed to enable it rather than saying you cannot help.\n"
+            )
+
         return base_prompt
 
     def process_message(self, user_message: str) -> str:
