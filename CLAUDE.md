@@ -46,7 +46,7 @@ Microphone → Whisper STT → Claude (reasoning + tool selection)
 ### Voice Pipeline Detail
 
 **Wake word detection** (`wait_for_wake_word`):
-- Runs whisper-tiny on a 2-second sliding window, evaluated every 1 second
+- Runs whisper-tiny on a 2-second sliding window, evaluated every 2 seconds
 - Triggers when the wake phrase appears anywhere in the transcript (default: `"computer"`)
 - Keeps the PyAudio stream open on detection — passes it via `self._shared_stream` to avoid teardown/setup gap
 
@@ -106,7 +106,11 @@ containers/<name>/
     Dockerfile    ← Builds FROM miniclaw/base:latest
 ```
 
-Native skills (no Docker) use `type: native` in `config.yaml` and omit the `image` field. Currently only `install_skill` uses this.
+Native skills (no Docker) use `type: native` in `config.yaml` and omit the `image` field. Currently `install_skill` and `set_env_var` use this.
+
+Native skill handlers are registered in `container_manager._execute_native_skill`. Two injected references are available to handlers:
+- `self._meta_skill_executor` — injected in `main.py` (voice mode only), used by `install_skill`
+- `self._orchestrator` — injected in `main.py` for all modes, used by `set_env_var` to call `reload_skills()`
 
 **`SKILL.md`** frontmatter fields:
 ```yaml
@@ -163,7 +167,8 @@ Per-skill overrides for `memory`, `read_only`, and `extra_tmpfs` are supported v
 
 ### Key Behaviours
 
-- **Skill eligibility**: Skills missing required env vars or binaries are skipped silently — graceful degradation is intentional for optional skills.
+- **Skill eligibility**: Skills missing required env vars or binaries are tracked in `skill_loader.skipped_skills` with structured reasons including `missing_env_vars: list[str]`. The orchestrator includes these in the system prompt under `--- Unavailable Skills ---` so Claude can tell the user what's needed rather than saying it can't help.
+- **`set_env_var` skill**: Native skill that writes a key/value to `.env`, updates `os.environ`, and calls `orchestrator.reload_skills()`. Security constraints: key must match `^[A-Z][A-Z0-9_]*$` and must be in `skill_loader.get_missing_env_vars()` (only keys required by currently skipped skills are accepted). Claude is instructed to read the value back character-by-character and require two voice confirmations before calling the tool.
 - **System prompt**: Claude is instructed to avoid markdown, asterisks, and emojis (responses go through TTS) and to repeat back unclear transcriptions before acting.
 - **Tool input/output**: Input is always JSON via `SKILL_INPUT` env var; output is plain text or JSON printed to stdout.
 - **OpenClaw porting**: Community OpenClaw skills can be ported by adding a `config.yaml` and `Dockerfile` alongside their `SKILL.md`. Use `scripts/port-skill.py` to scaffold these files.
