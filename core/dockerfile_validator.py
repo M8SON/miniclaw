@@ -102,8 +102,10 @@ def validate(dockerfile_path: Path) -> None:
 
         elif instruction == "COPY":
             parts = line.split()
-            if len(parts) >= 2:
-                src = parts[1]
+            # Skip past any --flag options (e.g. --chown=user:group, --chmod=755)
+            src_parts = [p for p in parts[1:] if not p.startswith("--")]
+            if src_parts:
+                src = src_parts[0]
                 if src.startswith("/") or src.startswith(".."):
                     raise DockerfileValidationError(
                         f"Line {lineno}: COPY source must be a relative local path, "

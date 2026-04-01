@@ -330,6 +330,7 @@ class VoiceInterface:
         except KeyboardInterrupt:
             pass
 
+        sample_width = audio.get_sample_size(self.FORMAT)
         stream.stop_stream()
         stream.close()
         audio.terminate()
@@ -337,7 +338,7 @@ class VoiceInterface:
         temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         with wave.open(temp_file.name, "wb") as wf:
             wf.setnchannels(self.CHANNELS)
-            wf.setsampwidth(audio.get_sample_size(self.FORMAT))
+            wf.setsampwidth(sample_width)
             wf.setframerate(self.RATE)
             wf.writeframes(b"".join(frames))
 

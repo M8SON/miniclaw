@@ -29,6 +29,14 @@ logging.basicConfig(
 logger = logging.getLogger("miniclaw")
 
 
+def _print_loaded_skills(orchestrator):
+    skills = orchestrator.list_skills()
+    if skills:
+        print(f"\n  Loaded {len(skills)} skill(s):")
+        for s in skills:
+            print(f"    - {s['name']}")
+
+
 def run_voice_mode(orchestrator):
     """Run the assistant in voice mode with microphone input."""
     from core.voice import VoiceInterface
@@ -62,12 +70,7 @@ def run_voice_mode(orchestrator):
     print("  Press Ctrl+C to quit.\n")
     print("=" * 60)
 
-    # List loaded skills
-    skills = orchestrator.list_skills()
-    if skills:
-        print(f"\n  Loaded {len(skills)} skill(s):")
-        for s in skills:
-            print(f"    - {s['name']}")
+    _print_loaded_skills(orchestrator)
     print()
 
     # How long to wait for follow-up speech before returning to wake word detection
@@ -118,12 +121,7 @@ def run_text_mode(orchestrator):
     print("  MiniClaw (Text Mode)")
     print("=" * 60)
 
-    skills = orchestrator.list_skills()
-    if skills:
-        print(f"\n  Loaded {len(skills)} skill(s):")
-        for s in skills:
-            print(f"    - {s['name']}")
-
+    _print_loaded_skills(orchestrator)
     print("\n  Type your message. Type 'quit' to exit.\n")
 
     try:
@@ -204,7 +202,7 @@ def main():
 
     orchestrator = Orchestrator(
         anthropic_api_key=api_key,
-        model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929"),
+        model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
         skill_paths=skill_paths,
         container_memory=os.getenv("CONTAINER_MEMORY", "256m"),
     )

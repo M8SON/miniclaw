@@ -4,7 +4,7 @@ Orchestrator - Central coordinator for MiniClaw.
 Connects the voice interface, skill system, container execution,
 and Claude API into a single loop:
 
-  Voice In → Whisper → Claude (with skill tools) → Container Execution → Claude → Piper TTS → Voice Out
+  Voice In → Whisper → Claude (with skill tools) → Container Execution → Claude → Kokoro TTS → Voice Out
 
 This replaces the monolithic voice_assistant.py with a modular system
 where capabilities are defined by skill files and executed in containers.
@@ -259,7 +259,7 @@ class Orchestrator:
             {
                 "name": s.name,
                 "description": s.description,
-                "format": "native",
+                "format": s.execution_config.get("type", "docker"),
                 "dir": s.skill_dir,
             }
             for s in self.skills.values()

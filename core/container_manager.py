@@ -15,6 +15,7 @@ import json
 import time
 import subprocess
 import logging
+from datetime import date
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -216,17 +217,17 @@ class ContainerManager:
         os.environ[key] = value
 
         # Reload skills so newly satisfied requirements take effect
-        if self._orchestrator is not None:
-            self._orchestrator.reload_skills()
+        if self._orchestrator is None:
+            logger.info("Set env var %s", key)
+            return f"Set {key} successfully."
 
+        self._orchestrator.reload_skills()
         logger.info("Set env var %s and reloaded skills", key)
 
-        if self._orchestrator is not None:
-            skipped = list(self._orchestrator.skill_loader.skipped_skills.keys())
-            if skipped:
-                return f"Set {key}. Skills still unavailable: {', '.join(skipped)}."
-            return f"Set {key}. All skills are now available."
-        return f"Set {key} successfully."
+        skipped = list(self._orchestrator.skill_loader.skipped_skills.keys())
+        if skipped:
+            return f"Set {key}. Skills still unavailable: {', '.join(skipped)}."
+        return f"Set {key}. All skills are now available."
 
     def _execute_save_memory(self, tool_input: dict) -> str:
         """Write a memory note as a markdown file to the memory vault."""
@@ -242,7 +243,6 @@ class ContainerManager:
         except OSError as e:
             return f"Error creating memory vault: {e}"
 
-        from datetime import date
         date_str = date.today().isoformat()
         slug = re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")
         filename = f"{date_str}_{slug}.md"
