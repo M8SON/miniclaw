@@ -163,6 +163,8 @@ class ContainerManager:
             return self._meta_skill_executor.run(tool_input)
         if skill.name == "set_env_var":
             return self._execute_set_env_var(tool_input)
+        if skill.name == "save_memory":
+            return self._execute_save_memory(tool_input)
         return f"No native handler registered for skill '{skill.name}'"
 
     def _execute_set_env_var(self, tool_input: dict) -> str:
@@ -230,6 +232,35 @@ class ContainerManager:
                 return f"Set {key}. Skills still unavailable: {', '.join(skipped)}."
             return f"Set {key}. All skills are now available."
         return f"Set {key} successfully."
+
+    def _execute_save_memory(self, tool_input: dict) -> str:
+        """Write a memory note as a markdown file to the memory vault."""
+        topic = str(tool_input.get("topic", "")).strip()
+        content = str(tool_input.get("content", "")).strip()
+
+        if not topic or not content:
+            return "Error: both topic and content are required."
+
+        vault_path = Path(os.environ.get("MEMORY_VAULT_PATH", Path.home() / ".miniclaw" / "memory"))
+        try:
+            vault_path.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return f"Error creating memory vault: {e}"
+
+        from datetime import date
+        date_str = date.today().isoformat()
+        slug = re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")
+        filename = f"{date_str}_{slug}.md"
+        note_path = vault_path / filename
+
+        note = f"---\ndate: {date_str}\ntopic: {topic}\n---\n\n{content}\n"
+        try:
+            note_path.write_text(note, encoding="utf-8")
+        except OSError as e:
+            return f"Error saving memory: {e}"
+
+        logger.info("Memory saved: %s", note_path)
+        return f"Memory saved: {filename}"
 
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""

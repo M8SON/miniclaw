@@ -17,6 +17,7 @@ import logging
 import anthropic
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import date
 
 from core.skill_loader import SkillLoader
 from core.container_manager import ContainerManager
@@ -93,6 +94,10 @@ class Orchestrator:
             "X but I am not sure, could you repeat that?'\n"
         )
 
+        memories = self._load_memories()
+        if memories:
+            base_prompt += f"\n--- Remembered from past conversations ---\n{memories}\n"
+
         if self.skills:
             base_prompt += "\n--- Available Skills ---\n"
             for skill in self.skills.values():
@@ -109,6 +114,29 @@ class Orchestrator:
             )
 
         return base_prompt
+
+    def _load_memories(self) -> str:
+        """Read all memory notes from the vault and return them as a formatted block."""
+        vault_path = Path(os.environ.get("MEMORY_VAULT_PATH", Path.home() / ".miniclaw" / "memory"))
+        if not vault_path.is_dir():
+            return ""
+
+        notes = []
+        for md_file in sorted(vault_path.glob("*.md")):
+            try:
+                text = md_file.read_text(encoding="utf-8")
+                # Strip YAML frontmatter
+                if text.startswith("---"):
+                    parts = text.split("---", 2)
+                    body = parts[2].strip() if len(parts) >= 3 else text
+                else:
+                    body = text.strip()
+                if body:
+                    notes.append(body)
+            except OSError:
+                continue
+
+        return "\n".join(notes)
 
     def process_message(self, user_message: str) -> str:
         """

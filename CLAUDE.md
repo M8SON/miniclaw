@@ -169,6 +169,7 @@ Per-skill overrides for `memory`, `read_only`, and `extra_tmpfs` are supported v
 
 - **Skill eligibility**: Skills missing required env vars or binaries are tracked in `skill_loader.skipped_skills` with structured reasons including `missing_env_vars: list[str]`. The orchestrator includes these in the system prompt under `--- Unavailable Skills ---` so Claude can tell the user what's needed rather than saying it can't help.
 - **`set_env_var` skill**: Native skill that writes a key/value to `.env`, updates `os.environ`, and calls `orchestrator.reload_skills()`. Security constraints: key must match `^[A-Z][A-Z0-9_]*$` and must be in `skill_loader.get_missing_env_vars()` (only keys required by currently skipped skills are accepted). Claude is instructed to read the value back character-by-character and require two voice confirmations before calling the tool.
+- **`save_memory` skill**: Native skill that writes a markdown note to the memory vault (`MEMORY_VAULT_PATH` env var, default `~/.miniclaw/memory`). Files are named `YYYY-MM-DD_topic_slug.md` with YAML frontmatter. The orchestrator loads all vault `.md` files at startup and injects them into the system prompt under `--- Remembered from past conversations ---`. This is the Obsidian integration — point Obsidian at the vault directory to browse/edit memories.
 - **System prompt**: Claude is instructed to avoid markdown, asterisks, and emojis (responses go through TTS) and to repeat back unclear transcriptions before acting.
 - **Tool input/output**: Input is always JSON via `SKILL_INPUT` env var; output is plain text or JSON printed to stdout.
 - **OpenClaw porting**: Community OpenClaw skills can be ported by adding a `config.yaml` and `Dockerfile` alongside their `SKILL.md`. Use `scripts/port-skill.py` to scaffold these files.
@@ -188,6 +189,7 @@ Per-skill overrides for `memory`, `read_only`, and `extra_tmpfs` are supported v
 | `SILENCE_DURATION` | `2.0` | Seconds of silence before ending recording |
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
+| `MEMORY_VAULT_PATH` | `~/.miniclaw/memory` | Directory for Obsidian memory notes |
 
 ## What's Next (from roadmap)
 
