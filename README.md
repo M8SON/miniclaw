@@ -24,6 +24,7 @@ The system uses two layers for extensibility:
 - Conversation session mode — stays active between follow-ups until idle timeout
 - Streaming TTS — Kokoro chunks play as they're generated, first words spoken immediately
 - Voice skill installation — say "add a skill that does X" and Claude Code writes, builds, and loads it
+- Persistent memory — say "remember this" and it's saved as a markdown note, recalled automatically next session
 - Modular skill system — add capabilities without touching core code
 - OpenClaw skill compatibility — use existing community skills
 - Docker-sandboxed execution — security by default, resource-capped containers
@@ -164,6 +165,18 @@ This reads the `SKILL.md`, generates `config.yaml` and a container scaffold (`Do
 
 Skills that require missing environment variables or binaries are silently skipped at load time — graceful degradation is intentional.
 
+## Memory
+
+MiniClaw can remember things across conversations. Just say:
+
+> *"computer, remember that my wife's name is Sarah"*
+> *"computer, don't forget I prefer temperatures in Celsius"*
+> *"computer, make a note that the garage code is 1234"*
+
+Memories are saved as markdown files in `~/.miniclaw/memory/` (configurable via `MEMORY_VAULT_PATH`). Each file is named `YYYY-MM-DD_topic.md` with YAML frontmatter. On every startup the orchestrator reads the vault and injects the contents into Claude's context, so past memories are available automatically without any special commands.
+
+**Obsidian integration** — open `~/.miniclaw/memory` as an Obsidian vault to browse, search, edit, or delete memories with a full GUI. Since the files are plain markdown, everything works out of the box.
+
 ## Configuration
 
 Key environment variables in `.env`:
@@ -181,6 +194,7 @@ Key environment variables in `.env`:
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
 | `WAKE_MODEL` | `tiny` | Wake word detection model size |
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
+| `MEMORY_VAULT_PATH` | `~/.miniclaw/memory` | Directory for memory notes (point Obsidian here) |
 | `BRAVE_API_KEY` | — | Required for web search skill |
 | `OPENWEATHER_API_KEY` | — | Required for weather skill |
 
@@ -223,6 +237,7 @@ MiniClaw/
 │   ├── soundcloud/
 │   ├── playwright_scraper/
 │   ├── install_skill/             # Voice skill installation (native, no container)
+│   ├── save_memory/               # Persistent memory (native, writes to ~/.miniclaw/memory)
 │   └── skill_tells_random/        # Example voice-installed skill
 ├── containers/                    # Docker containers for skill execution
 │   ├── base/                      # Shared base image (python:3.11-slim + requests)
@@ -247,6 +262,7 @@ MiniClaw/
 - [x] R2-D2 style audio feedback (startup chime + thinking sound)
 - [x] Voice skill installation via Claude Code
 - [x] Playwright web scraper skill (handles JS-rendered + bot-protected sites)
+- [x] Persistent memory with Obsidian integration
 - [ ] TTS interruption — stop speaking when user talks over the assistant
 - [ ] AI HAT+ 2 accelerated Whisper (offload STT to Hailo-8L NPU)
 - [ ] AI HAT+ 2 accelerated Kokoro TTS (offload synthesis to Hailo-8L NPU)
