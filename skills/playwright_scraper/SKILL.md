@@ -20,9 +20,6 @@ properties:
   url:
     type: string
     description: The full URL to scrape (must start with http:// or https://)
-  instruction:
-    type: string
-    description: Optional — what to extract or focus on (e.g. "get the price", "summarise the article")
 required:
   - url
 ```

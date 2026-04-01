@@ -232,7 +232,7 @@ MiniClaw/
 │   ├── port-skill.py              # Scaffold a container from an OpenClaw skill
 │   └── build_new_skill.sh         # Host-side Docker build for voice-installed skills
 ├── skills/                        # Skill definitions (SKILL.md + config.yaml)
-│   ├── get_weather/
+│   ├── weather/
 │   ├── web_search/
 │   ├── soundcloud/
 │   ├── playwright_scraper/

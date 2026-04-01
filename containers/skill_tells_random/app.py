@@ -2,7 +2,6 @@
 Random joke skill container - fetches a random joke from a public API.
 """
 
-import json
 import random
 import requests
 

@@ -11,13 +11,10 @@ where capabilities are defined by skill files and executed in containers.
 """
 
 import os
-import sys
 import json
 import logging
 import anthropic
 from pathlib import Path
-from dotenv import load_dotenv
-from datetime import date
 
 from core.skill_loader import SkillLoader
 from core.container_manager import ContainerManager

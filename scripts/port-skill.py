@@ -167,7 +167,6 @@ def main():
 
     # ── config.yaml ───────────────────────────────────────────────────────
     config = {
-        "type": "native",
         "image": f"miniclaw/{img}:latest",
         "env_passthrough": env_vars,
         "timeout_seconds": 30,
