@@ -216,13 +216,8 @@ class ContainerManager:
         os.environ[key] = value
 
         # Reload skills so newly satisfied requirements take effect
-        newly_available = []
         if self._orchestrator is not None:
             self._orchestrator.reload_skills()
-            newly_available = [
-                name for name in self._orchestrator.skills
-                if name not in ("set_env_var", "install_skill")
-            ]
 
         logger.info("Set env var %s and reloaded skills", key)
 

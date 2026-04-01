@@ -217,9 +217,6 @@ def main():
         for v in env_vars:
             print(f"       {v}=your_value_here")
         step += 1
-    print(f"  {step}. Add to run.sh SKILL_CONTAINERS:")
-    print(f'       ["miniclaw/{img}:latest"]="containers/{slug}"')
-    step += 1
     print(f"  {step}. Build and test:")
     print(f"       docker build -t miniclaw/{img}:latest containers/{slug}/")
     print(f"       ./run.sh --list")
