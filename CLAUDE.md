@@ -197,3 +197,16 @@ The next planned items in priority order:
 1. **TTS interruption** — Stop speaking when user talks over the assistant (skipped for now — mic sensitivity makes this unreliable in noisy environments; revisit when fine-tuning for Pi)
 2. **AI HAT+ 2 Whisper integration** — Offload whisper-tiny and whisper-base to Hailo-8L NPU; biggest single latency win (currently 3-5s per transcription on CPU)
 3. **AI HAT+ 2 Kokoro integration** — Offload Kokoro synthesis to NPU; requires compiling model to Hailo Executable Format (.hef)
+4. **GPIO / hardware module skills** — lights, sensors, displays (waiting on Pi hardware)
+5. **Camera + vision skills** via AI HAT+ 2 (waiting on Pi hardware)
+6. **Community skill registry** — a shared repo + install script so users can publish and pull skills
+
+Items 2-6 are blocked on hardware. Mason is planning to purchase a Raspberry Pi 5 and AI HAT+ 2 soon.
+
+## Session History
+
+### Session: 2026-04-01
+- Added **Obsidian-backed memory skill** (`save_memory`) — native skill that writes markdown notes to `~/.miniclaw/memory/` (configurable via `MEMORY_VAULT_PATH`). Orchestrator loads all vault `.md` files at startup and injects them into the system prompt. Point Obsidian at the vault directory to browse/edit memories.
+- **Full functionality test** — all 8 skills tested and verified working: basic conversation, `skill_tells_random`, `get_weather`, `search_web`, `scrape_webpage`, `save_memory`, memory recall across sessions, and `set_env_var` routing.
+- **Two-pass code cleanup** — removed unused imports (`sys`, `load_dotenv`, `date` from orchestrator; `json` from meta_skill and skill_tells_random); removed dead `newly_available` variable from `_execute_set_env_var`; dropped unimplemented `instruction` param from playwright SKILL.md; fixed `port-skill.py` generating `type: native` for Docker skills and giving stale run.sh instructions; fixed README wrong directory name.
+- **Ported Homebridge skill** from OpenClaw community registry (`jiasenl/clawdbot-skill-homebridge`). Controls smart home devices via Homebridge Config UI X REST API. Adapted credentials from file-based to env vars, added fuzzy device name matching, SKILL_INPUT JSON interface. Skill self-gates when env vars are missing and tells the user what's needed.
