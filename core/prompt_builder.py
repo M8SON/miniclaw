@@ -13,6 +13,8 @@ from core.memory_provider import MemoryProvider
 class PromptBuilder:
     """Build the full system prompt used for Claude requests."""
 
+    ALWAYS_FULL_SKILLS = {"set_env_var"}
+
     BASE_PROMPT = (
         "You are a helpful voice assistant running on a Raspberry Pi. "
         "You have access to various tools provided as skills. "
@@ -93,6 +95,17 @@ class PromptBuilder:
         if not self._exceeds_budget(full_body, self.max_skill_tokens):
             return "\n--- Available Skills ---\n" + full_body
 
+        rendered_blocks = []
+        retained_tokens = 0
+
+        for skill in skills.values():
+            if skill.name not in self.ALWAYS_FULL_SKILLS:
+                continue
+
+            full_block = full_blocks[skill.name]
+            rendered_blocks.append(full_block)
+            retained_tokens += self._estimate_tokens(full_block)
+
         compact_blocks = {
             skill.name: self._compact_skill_block(skill.name, skill.description)
             for skill in skills.values()
@@ -102,10 +115,10 @@ class PromptBuilder:
             for skill in skills.values()
         }
 
-        rendered_blocks = []
-        retained_tokens = 0
-
         for skill in skills.values():
+            if skill.name in self.ALWAYS_FULL_SKILLS:
+                continue
+
             full_block = full_blocks[skill.name]
             compact_block = compact_blocks[skill.name]
             minimal_block = minimal_blocks[skill.name]

@@ -81,6 +81,7 @@ class SkillLoader:
     def load_all(self) -> dict[str, Skill]:
         """Scan all search paths and return eligible skills keyed by name."""
 
+        self.skills = {}
         self.skipped_skills = {}
         self.invalid_skills = {}
 

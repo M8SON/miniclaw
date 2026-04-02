@@ -61,7 +61,7 @@ ok "venv active"
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
-if ! python3 -c "import anthropic" &>/dev/null 2>&1; then
+if ! python3 -c "import anthropic, dotenv, yaml" &>/dev/null 2>&1; then
     echo "  Installing dependencies..."
     pip install -r requirements.txt -q
     ok "dependencies installed"
