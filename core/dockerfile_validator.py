@@ -104,12 +104,13 @@ def validate(dockerfile_path: Path) -> None:
             parts = line.split()
             # Skip past any --flag options (e.g. --chown=user:group, --chmod=755)
             src_parts = [p for p in parts[1:] if not p.startswith("--")]
-            if src_parts:
-                src = src_parts[0]
-                if src.startswith("/") or src.startswith(".."):
+            if len(src_parts) >= 2:
+                sources = src_parts[:-1]
+                invalid = next((src for src in sources if not _is_relative_copy_source(src)), None)
+                if invalid is not None:
                     raise DockerfileValidationError(
                         f"Line {lineno}: COPY source must be a relative local path, "
-                        f"got {src!r}"
+                        f"got {invalid!r}"
                     )
 
     if from_count == 0:
@@ -120,9 +121,18 @@ def _is_allowed_run(run_body: str) -> bool:
     """
     Return True if every && -separated segment starts with an allowed prefix.
     """
-    segments = [s.strip() for s in re.split(r"\s*&&\s*", run_body)]
+    segments = [s.strip() for s in re.split(r"\s*(?:&&|\|\||;)\s*", run_body)]
     return all(
         any(seg.startswith(prefix) for prefix in ALLOWED_RUN_PREFIXES)
         for seg in segments
         if seg
     )
+
+
+def _is_relative_copy_source(src: str) -> bool:
+    """Return True when a COPY source stays within the build context."""
+    if not src or src.startswith("/"):
+        return False
+
+    src_path = Path(src)
+    return ".." not in src_path.parts

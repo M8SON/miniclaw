@@ -266,14 +266,23 @@ def _validate_paths(skill_name: str) -> tuple[bool, list[str]]:
             continue
         for p in root.rglob("*"):
             resolved = p.resolve()
-            if not any(str(resolved).startswith(str(a)) for a in allowed):
+            if not any(_is_within_path(resolved, a) for a in allowed):
                 violations.append(str(p))
             if p.is_symlink():
                 target = p.resolve()
-                if not any(str(target).startswith(str(a)) for a in allowed):
+                if not any(_is_within_path(target, a) for a in allowed):
                     violations.append(f"symlink {p} -> {target}")
 
     return len(violations) == 0, violations
+
+
+def _is_within_path(path: Path, root: Path) -> bool:
+    """Return True when path is equal to root or contained beneath it."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def _audit_env_passthrough(skill_name: str) -> list[str]:

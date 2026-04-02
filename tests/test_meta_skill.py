@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.meta_skill import MetaSkillExecutor
+from core.meta_skill import MetaSkillExecutor, _validate_paths
 
 
 class FakeVoice:
@@ -109,6 +109,26 @@ class MetaSkillExecutorTests(unittest.TestCase):
 
             self.assertEqual(result, "Skill installation cancelled before build.")
             self.assertEqual(cleanup_calls, ["create_demo_skill"])
+
+    def test_validate_paths_rejects_prefix_sibling_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            skill_name = "demo"
+            skill_dir = repo_root / "skills" / skill_name
+            container_dir = repo_root / "containers" / skill_name
+            skill_dir.mkdir(parents=True)
+            container_dir.mkdir(parents=True)
+
+            escaped_dir = repo_root / "skills" / f"{skill_name}_evil"
+            escaped_dir.mkdir(parents=True)
+            (escaped_dir / "outside.txt").write_text("x", encoding="utf-8")
+            (skill_dir / "link").symlink_to(escaped_dir, target_is_directory=True)
+
+            with patch("core.meta_skill.REPO_ROOT", repo_root):
+                ok, violations = _validate_paths(skill_name)
+
+            self.assertFalse(ok)
+            self.assertTrue(any("symlink" in violation for violation in violations))
 
 
 if __name__ == "__main__":
