@@ -22,6 +22,10 @@ ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
 warn() { echo -e "  ${YELLOW}!${NC} $1"; }
 fail() { echo -e "  ${RED}✗${NC} $1"; exit 1; }
 
+CURRENT_USER="$(id -un)"
+DOCKER_READY=false
+DOCKER_USE_SG=false
+
 INSTALL_SYSTEM_DEPS=false
 POSITIONAL_ARGS=()
 
@@ -61,6 +65,51 @@ create_venv() {
     fi
 }
 
+docker_group_has_user() {
+    getent group docker | awk -F: '{print $4}' | tr ',' '\n' | grep -Fxq "$CURRENT_USER"
+}
+
+ensure_docker_group_membership() {
+    if ! getent group docker >/dev/null 2>&1; then
+        fail "docker group not found after installation"
+    fi
+
+    if docker_group_has_user; then
+        ok "user '$CURRENT_USER' is in docker group"
+        return
+    fi
+
+    echo "  Adding '$CURRENT_USER' to docker group..."
+    sudo usermod -aG docker "$CURRENT_USER"
+    ok "added '$CURRENT_USER' to docker group"
+}
+
+docker_run() {
+    if [ "$DOCKER_USE_SG" = true ]; then
+        local quoted=()
+        local arg
+        for arg in "$@"; do
+            quoted+=("$(printf '%q' "$arg")")
+        done
+        sg docker -c "docker ${quoted[*]}"
+    else
+        docker "$@"
+    fi
+}
+
+launch_miniclaw() {
+    if [ "$DOCKER_USE_SG" = true ]; then
+        local quoted=(".venv/bin/python3" "main.py")
+        local arg
+        for arg in "${ARGS[@]}"; do
+            quoted+=("$(printf '%q' "$arg")")
+        done
+        exec sg docker -c "cd $(printf '%q' "$SCRIPT_DIR") && ${quoted[*]}"
+    fi
+
+    exec python3 main.py "${ARGS[@]}"
+}
+
 install_system_deps() {
     if [ ! -f /etc/os-release ]; then
         fail "--install-system-deps is only supported on Debian/Ubuntu systems"
@@ -79,6 +128,7 @@ install_system_deps() {
     sudo apt-get update
     sudo apt-get install -y docker.io espeak-ng
     sudo systemctl enable --now docker
+    ensure_docker_group_membership
     ok "system dependencies installed"
 }
 
@@ -148,25 +198,35 @@ ok ".env present"
 
 # ── Docker ───────────────────────────────────────────────────────────────────
 
-DOCKER_READY=false
 if ! command -v docker &>/dev/null; then
     warn "docker not found — Docker-backed skills will be unavailable. Install with: ./run.sh --install-system-deps"
-elif ! docker info &>/dev/null 2>&1; then
-    warn "Docker daemon is not running — Docker-backed skills will be unavailable"
 else
-    DOCKER_READY=true
-    ok "docker available"
+    if docker info &>/dev/null 2>&1; then
+        DOCKER_READY=true
+        ok "docker available"
+    elif command -v sg &>/dev/null && sg docker -c "docker info" &>/dev/null 2>&1; then
+        DOCKER_READY=true
+        DOCKER_USE_SG=true
+        ok "docker available via refreshed docker-group shell"
+        warn "current shell has stale docker permissions — using 'sg docker' for this run"
+    else
+        if getent group docker >/dev/null 2>&1 && ! docker_group_has_user; then
+            warn "docker is installed but '$CURRENT_USER' is not in the docker group — run: sudo usermod -aG docker $CURRENT_USER"
+        else
+            warn "Docker daemon is not running or this session cannot access it — Docker-backed skills will be unavailable"
+        fi
+    fi
 fi
 
 # ── Skill containers ─────────────────────────────────────────────────────────
 # Base image must be built first — skill containers depend on it
 
 if [ "$DOCKER_READY" = true ]; then
-    if docker image inspect miniclaw/base:latest &>/dev/null 2>&1; then
+    if docker_run image inspect miniclaw/base:latest &>/dev/null 2>&1; then
         ok "miniclaw/base:latest"
     else
         echo "  Building miniclaw/base:latest..."
-        docker build -t miniclaw/base:latest containers/base/ -q
+        docker_run build -t miniclaw/base:latest containers/base/ -q
         ok "miniclaw/base:latest (built)"
     fi
 
@@ -178,11 +238,11 @@ if [ "$DOCKER_READY" = true ]; then
 
         image="miniclaw/${name//_/-}:latest"
 
-        if docker image inspect "$image" &>/dev/null 2>&1; then
+        if docker_run image inspect "$image" &>/dev/null 2>&1; then
             ok "$image"
         else
             echo "  Building $image..."
-            docker build -t "$image" "$dir" -q
+            docker_run build -t "$image" "$dir" -q
             ok "$image (built)"
         fi
     done
@@ -192,4 +252,4 @@ fi
 
 echo "──────────────────────────────"
 
-python3 main.py "${ARGS[@]}"
+launch_miniclaw

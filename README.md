@@ -116,6 +116,15 @@ System packages are separate because they require privileged OS changes. On Debi
 
 That installs `docker.io` and `espeak-ng`, then starts the Docker service.
 
+On systems where Docker was just installed, `run.sh` also adds the current user to the `docker` group. If the current shell has not picked up the new group yet, the launcher will try to continue automatically via `sg docker` for that run.
+
+If a later shell still does not have Docker access, refresh your login session and verify with:
+
+```bash
+id
+docker info
+```
+
 ## Testing
 
 MiniClaw now includes a small `unittest` smoke suite for core non-audio behavior, including:
