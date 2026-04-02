@@ -130,6 +130,20 @@ Run it with:
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
+There is also a single standard test entry point:
+
+```bash
+./scripts/test.sh
+```
+
+Optional layers:
+
+```bash
+./scripts/test.sh --voice    # scripted voice-loop harness, no mic/speaker needed
+./scripts/test.sh --install  # real install_skill integration using Claude CLI + Docker
+./scripts/test.sh --all
+```
+
 There is also an optional real integration harness for the `install_skill` flow. It uses the real Claude CLI and real Docker build path, but replaces microphone confirmation with scripted responses so it can run unattended:
 
 ```bash
@@ -140,6 +154,12 @@ Notes:
 - it requires `claude`, Docker, and valid auth/config on the machine
 - it creates a disposable skill and image, then cleans them up by default
 - pass `--keep-artifacts` if you want to inspect the generated files afterward
+
+The scripted voice-loop harness exercises the real `run_voice_mode` control flow with a fake voice interface, so it covers wake detection/session management/exit behavior without audio hardware:
+
+```bash
+.venv/bin/python scripts/test_voice_mode_harness.py
+```
 
 ## Adding Skills
 

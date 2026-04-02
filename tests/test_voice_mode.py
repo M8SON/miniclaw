@@ -1,0 +1,97 @@
+import io
+import unittest
+from contextlib import redirect_stdout
+
+import main
+
+
+class FakeContainerManager:
+    def __init__(self):
+        self._meta_skill_executor = None
+
+
+class FakeOrchestrator:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.processed = []
+        self.container_manager = FakeContainerManager()
+
+    def list_skills(self):
+        return [{"name": "skill_tells_random", "description": "Tell a random joke"}]
+
+    def process_message(self, transcription):
+        self.processed.append(transcription)
+        return self.responses.pop(0)
+
+
+class FakeVoice:
+    def __init__(self, wake_results, listen_results):
+        self.wake_results = list(wake_results)
+        self.listen_results = list(listen_results)
+        self.spoken = []
+        self.startup_sounds = 0
+        self.thinking_sounds = 0
+
+    def wait_for_wake_word(self):
+        if not self.wake_results:
+            return False
+        return self.wake_results.pop(0)
+
+    def listen(self, max_wait_seconds=0):
+        if not self.listen_results:
+            return None
+        return self.listen_results.pop(0)
+
+    def speak(self, text):
+        self.spoken.append(text)
+
+    def play_startup_sound(self):
+        self.startup_sounds += 1
+
+    def play_thinking_sound(self):
+        self.thinking_sounds += 1
+
+
+class VoiceModeTests(unittest.TestCase):
+    def test_voice_mode_processes_request_then_exits_on_goodbye(self):
+        orchestrator = FakeOrchestrator(["Hello from MiniClaw"])
+        voice = FakeVoice(
+            wake_results=[True],
+            listen_results=["tell me something", "goodbye"],
+        )
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            main.run_voice_mode(orchestrator, voice=voice)
+
+        rendered = output.getvalue()
+        self.assertIn("Waiting for wake phrase", rendered)
+        self.assertIn("You: tell me something", rendered)
+        self.assertIn("Assistant: Hello from MiniClaw", rendered)
+        self.assertIn("Assistant: Goodbye!", rendered)
+        self.assertEqual(orchestrator.processed, ["tell me something"])
+        self.assertEqual(voice.spoken, ["Hello from MiniClaw", "Goodbye!"])
+        self.assertEqual(voice.startup_sounds, 1)
+        self.assertEqual(voice.thinking_sounds, 1)
+        self.assertIsNotNone(orchestrator.container_manager._meta_skill_executor)
+
+    def test_voice_mode_ends_idle_session_and_returns_to_wake_loop(self):
+        orchestrator = FakeOrchestrator(["Response one"])
+        voice = FakeVoice(
+            wake_results=[True, False],
+            listen_results=[None],
+        )
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            main.run_voice_mode(orchestrator, voice=voice)
+
+        rendered = output.getvalue()
+        self.assertIn("Session ended.", rendered)
+        self.assertEqual(orchestrator.processed, [])
+        self.assertEqual(voice.spoken, [])
+        self.assertEqual(voice.thinking_sounds, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

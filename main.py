@@ -37,13 +37,13 @@ def _print_loaded_skills(orchestrator):
             print(f"    - {s['name']}")
 
 
-def run_voice_mode(orchestrator):
-    """Run the assistant in voice mode with microphone input."""
+def build_voice_interface():
+    """Construct the default production voice interface from environment config."""
     from core.voice import VoiceInterface
 
     wake_phrase = os.getenv("WAKE_PHRASE", "computer")
 
-    voice = VoiceInterface(
+    return VoiceInterface(
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
         wake_model=os.getenv("WAKE_MODEL", "tiny"),
         wake_phrase=wake_phrase,
@@ -53,6 +53,12 @@ def run_voice_mode(orchestrator):
         silence_threshold=int(os.getenv("SILENCE_THRESHOLD", "1000")),
         silence_duration=float(os.getenv("SILENCE_DURATION", "2.0")),
     )
+
+
+def run_voice_mode(orchestrator, voice=None):
+    """Run the assistant in voice mode with microphone input."""
+    voice = voice or build_voice_interface()
+    wake_phrase = os.getenv("WAKE_PHRASE", "computer")
 
     from core.meta_skill import MetaSkillExecutor
     orchestrator.container_manager._meta_skill_executor = MetaSkillExecutor(
