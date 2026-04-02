@@ -9,13 +9,13 @@ Scans skill directories, checks eligibility based on requirements
 the orchestrator.
 """
 
-import os
-import re
-import yaml
-import shutil
-import platform
 import logging
 from pathlib import Path
+
+import yaml
+
+from core.skill_eligibility import SkillEligibility
+from core.skill_validator import SkillValidator
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,9 @@ class SkillLoader:
         self.search_paths = search_paths or self.DEFAULT_SEARCH_PATHS
         self.skills: dict[str, Skill] = {}
         self.skipped_skills: dict[str, dict] = {}  # name -> {description, reason}
+        self.invalid_skills: dict[str, dict] = {}  # name -> {description, reason}
+        self.validator = SkillValidator()
+        self.eligibility = SkillEligibility()
 
     # ------------------------------------------------------------------
     # Public API
@@ -79,6 +82,7 @@ class SkillLoader:
         """Scan all search paths and return eligible skills keyed by name."""
 
         self.skipped_skills = {}
+        self.invalid_skills = {}
 
         for search_path in reversed(self.search_paths):
             if not search_path.is_dir():
@@ -117,22 +121,23 @@ class SkillLoader:
         config_path = skill_dir / "config.yaml"
 
         raw = skill_md.read_text(encoding="utf-8")
-        frontmatter, body = self._parse_frontmatter(raw)
-        if frontmatter is None:
-            logger.warning("No valid frontmatter in %s, skipping", skill_md)
+        try:
+            frontmatter, body = self.validator.validate_markdown(raw, skill_dir)
+        except ValueError as e:
+            logger.warning("Invalid skill markdown in %s: %s", skill_md, e)
+            self._record_invalid_skill(skill_dir.name, "", str(e))
             return None
 
         name = frontmatter.get("name", skill_dir.name)
         description = frontmatter.get("description", "")
 
         if not config_path.exists():
-            logger.warning(
-                "Skill '%s' has no config.yaml — all skills require a container config, skipping",
-                name,
-            )
+            reason = "missing config.yaml"
+            logger.warning("Skill '%s' has no config.yaml, skipping", name)
+            self._record_invalid_skill(name, description, reason)
             return None
 
-        skip_reason, missing_env_vars = self._check_eligible(frontmatter)
+        skip_reason, missing_env_vars = self.eligibility.check(frontmatter)
         if skip_reason:
             logger.info("Skill '%s' not eligible: %s", name, skip_reason)
             self.skipped_skills[name] = {
@@ -142,8 +147,15 @@ class SkillLoader:
             }
             return None
 
-        execution_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        tool_definition = self._build_tool_definition(name, description, body)
+        try:
+            raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+            execution_config = self.validator.validate_execution_config(raw_config)
+        except (OSError, yaml.YAMLError, ValueError) as e:
+            logger.warning("Invalid config for skill '%s': %s", name, e)
+            self._record_invalid_skill(name, description, str(e))
+            return None
+
+        tool_definition = self.validator.build_tool_definition(name, description, body)
 
         return Skill(
             name=name,
@@ -154,70 +166,6 @@ class SkillLoader:
             skill_dir=str(skill_dir),
         )
 
-    def _parse_frontmatter(self, raw: str) -> tuple[dict | None, str]:
-        """Split a SKILL.md into (frontmatter_dict, markdown_body)."""
-        pattern = r"^---\s*\n(.*?)\n---\s*\n(.*)$"
-        match = re.match(pattern, raw, re.DOTALL)
-        if not match:
-            return {}, raw
-
-        try:
-            fm = yaml.safe_load(match.group(1)) or {}
-        except yaml.YAMLError as e:
-            logger.warning("Failed to parse YAML frontmatter: %s", e)
-            return None, raw
-
-        return fm, match.group(2)
-
-    # ------------------------------------------------------------------
-    # Eligibility checking
-    # ------------------------------------------------------------------
-
-    def _check_eligible(self, frontmatter: dict) -> tuple[str | None, list[str]]:
-        """
-        Check whether a skill is eligible to run on this system.
-
-        Returns (reason, missing_env_vars) where reason is None if eligible,
-        or a human-readable string if not. missing_env_vars is the list of
-        env var names that are unset (used to restrict set_env_var).
-
-        Reads the top-level requires block:
-          requires:
-            env:     [LIST]     # all must be set
-            bins:    [LIST]     # all must exist on PATH
-            anyBins: [LIST]     # at least one must exist on PATH
-            os:      [LIST]     # linux | darwin | win32
-        """
-        requires = frontmatter.get("requires", {})
-        if not requires:
-            return None, []
-
-        missing = []
-        missing_env_vars = []
-
-        for var in requires.get("env", []):
-            if not os.environ.get(var):
-                missing.append(f"{var} env var")
-                missing_env_vars.append(var)
-
-        for binary in requires.get("bins", []):
-            if not shutil.which(binary):
-                missing.append(f"{binary} binary")
-
-        any_bins = requires.get("anyBins", [])
-        if any_bins and not any(shutil.which(b) for b in any_bins):
-            missing.append(f"one of these binaries: {', '.join(any_bins)}")
-
-        required_os = requires.get("os", [])
-        if required_os:
-            current_os = platform.system().lower()
-            os_map = {"darwin": "darwin", "linux": "linux", "windows": "win32"}
-            if os_map.get(current_os, current_os) not in required_os:
-                missing.append(f"OS must be one of: {', '.join(required_os)}")
-
-        reason = ("missing " + ", ".join(missing)) if missing else None
-        return reason, missing_env_vars
-
     def get_missing_env_vars(self) -> set[str]:
         """Return all env var names required by currently skipped skills."""
         result = set()
@@ -225,41 +173,9 @@ class SkillLoader:
             result.update(info.get("missing_env_vars", []))
         return result
 
-    # ------------------------------------------------------------------
-    # Tool definition building
-    # ------------------------------------------------------------------
-
-    def _build_tool_definition(self, name: str, description: str, body: str) -> dict:
-        """Build a Claude-compatible tool definition from skill metadata."""
-        return {
-            "name": name,
+    def _record_invalid_skill(self, name: str, description: str, reason: str) -> None:
+        """Track a skill that is installed but structurally invalid."""
+        self.invalid_skills[name] = {
             "description": description,
-            "input_schema": self._extract_input_schema(body),
-        }
-
-    def _extract_input_schema(self, body: str) -> dict:
-        """
-        Extract input schema from an ## Inputs or ## Parameters section.
-        Falls back to a generic {query: string} schema if none found.
-        """
-        pattern = r"##\s*(?:Inputs|Parameters|Input Schema)\s*\n```(?:yaml|json)\s*\n(.*?)```"
-        match = re.search(pattern, body, re.DOTALL | re.IGNORECASE)
-
-        if match:
-            try:
-                schema = yaml.safe_load(match.group(1))
-                if isinstance(schema, dict) and "type" in schema:
-                    return schema
-            except yaml.YAMLError:
-                pass
-
-        return {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The input or query for this skill",
-                }
-            },
-            "required": ["query"],
+            "reason": reason,
         }

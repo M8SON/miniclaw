@@ -205,6 +205,10 @@ def main():
         model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
         skill_paths=skill_paths,
         container_memory=os.getenv("CONTAINER_MEMORY", "256m"),
+        conversation_max_messages=int(os.getenv("CONVERSATION_MAX_MESSAGES", "24")),
+        conversation_max_tokens=int(os.getenv("CONVERSATION_MAX_TOKENS", "6000")),
+        memory_max_tokens=int(os.getenv("MEMORY_MAX_TOKENS", "2000")),
+        skill_prompt_max_tokens=int(os.getenv("SKILL_PROMPT_MAX_TOKENS", "4000")),
     )
 
     # Inject orchestrator reference for native skills that need to reload

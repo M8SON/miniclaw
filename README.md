@@ -163,7 +163,7 @@ python3 scripts/port-skill.py /path/to/openclaw-skill/
 
 This reads the `SKILL.md`, generates `config.yaml` and a container scaffold (`Dockerfile` + `app.py`), and prints the next steps.
 
-Skills that require missing environment variables or binaries are silently skipped at load time — graceful degradation is intentional.
+Skills that require missing environment variables or binaries are skipped at load time, and structurally invalid skills are tracked separately so the assistant can explain whether a capability is unavailable or misconfigured.
 
 ## Memory
 
@@ -192,6 +192,10 @@ Key environment variables in `.env`:
 | `SILENCE_THRESHOLD` | `1000` | Mic amplitude to count as speech |
 | `SILENCE_DURATION` | `2.0` | Seconds of silence before ending recording |
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
+| `CONVERSATION_MAX_MESSAGES` | `24` | Max message-count budget for short-term context, retained as whole recent turns |
+| `CONVERSATION_MAX_TOKENS` | `6000` | Approximate token budget for short-term context sent to Claude |
+| `MEMORY_MAX_TOKENS` | `2000` | Approximate token budget for persisted memory injected into the system prompt |
+| `SKILL_PROMPT_MAX_TOKENS` | `4000` | Approximate token budget for skill instructions in the system prompt |
 | `WAKE_MODEL` | `tiny` | Wake word detection model size |
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
 | `MEMORY_VAULT_PATH` | `~/.miniclaw/memory` | Directory for memory notes (point Obsidian here) |

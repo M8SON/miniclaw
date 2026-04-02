@@ -31,6 +31,11 @@ class ContainerManager:
         self.memory_limit = memory_limit
         self._meta_skill_executor = None  # injected from main.py after construction
         self._orchestrator = None          # injected from main.py after construction
+        self._native_handlers = {
+            "install_skill": self._execute_install_skill,
+            "set_env_var": self._execute_set_env_var,
+            "save_memory": self._execute_save_memory,
+        }
         self._verify_docker()
 
     def _verify_docker(self):
@@ -158,15 +163,16 @@ class ContainerManager:
 
     def _execute_native_skill(self, skill, tool_input: dict) -> str:
         """Route to a registered native (non-Docker) skill handler."""
-        if skill.name == "install_skill":
-            if self._meta_skill_executor is None:
-                return "Meta skill executor not initialised — restart MiniClaw in voice mode."
-            return self._meta_skill_executor.run(tool_input)
-        if skill.name == "set_env_var":
-            return self._execute_set_env_var(tool_input)
-        if skill.name == "save_memory":
-            return self._execute_save_memory(tool_input)
-        return f"No native handler registered for skill '{skill.name}'"
+        handler = self._native_handlers.get(skill.name)
+        if handler is None:
+            return f"No native handler registered for skill '{skill.name}'"
+        return handler(tool_input)
+
+    def _execute_install_skill(self, tool_input: dict) -> str:
+        """Delegate voice-driven skill installation to the meta skill executor."""
+        if self._meta_skill_executor is None:
+            return "Meta skill executor not initialised — restart MiniClaw in voice mode."
+        return self._meta_skill_executor.run(tool_input)
 
     def _execute_set_env_var(self, tool_input: dict) -> str:
         """Write a key=value pair to .env and reload skills."""
@@ -260,4 +266,3 @@ class ContainerManager:
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""
         return {var: val for var in var_names if (val := os.environ.get(var))}
-

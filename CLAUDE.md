@@ -167,10 +167,11 @@ Per-skill overrides for `memory`, `read_only`, and `extra_tmpfs` are supported v
 
 ### Key Behaviours
 
-- **Skill eligibility**: Skills missing required env vars or binaries are tracked in `skill_loader.skipped_skills` with structured reasons including `missing_env_vars: list[str]`. The orchestrator includes these in the system prompt under `--- Unavailable Skills ---` so Claude can tell the user what's needed rather than saying it can't help.
+- **Skill eligibility**: Skills missing required env vars or binaries are tracked in `skill_loader.skipped_skills` with structured reasons including `missing_env_vars: list[str]`. Structurally broken skills are tracked separately in `skill_loader.invalid_skills`. The orchestrator includes both in the system prompt so Claude can distinguish between unavailable and misconfigured capabilities.
 - **`set_env_var` skill**: Native skill that writes a key/value to `.env`, updates `os.environ`, and calls `orchestrator.reload_skills()`. Security constraints: key must match `^[A-Z][A-Z0-9_]*$` and must be in `skill_loader.get_missing_env_vars()` (only keys required by currently skipped skills are accepted). Claude is instructed to read the value back character-by-character and require two voice confirmations before calling the tool.
-- **`save_memory` skill**: Native skill that writes a markdown note to the memory vault (`MEMORY_VAULT_PATH` env var, default `~/.miniclaw/memory`). Files are named `YYYY-MM-DD_topic_slug.md` with YAML frontmatter. The orchestrator loads all vault `.md` files at startup and injects them into the system prompt under `--- Remembered from past conversations ---`. This is the Obsidian integration — point Obsidian at the vault directory to browse/edit memories.
-- **System prompt**: Claude is instructed to avoid markdown, asterisks, and emojis (responses go through TTS) and to repeat back unclear transcriptions before acting.
+- **`save_memory` skill**: Native skill that writes a markdown note to the memory vault (`MEMORY_VAULT_PATH` env var, default `~/.miniclaw/memory`). Files are named `YYYY-MM-DD_topic_slug.md` with YAML frontmatter. The orchestrator loads vault `.md` files at startup and injects the newest whole notes that fit `MEMORY_MAX_TOKENS` into the system prompt under `--- Remembered from past conversations ---`. This is the Obsidian integration — point Obsidian at the vault directory to browse/edit memories.
+- **System prompt**: Claude is instructed to avoid markdown, asterisks, and emojis (responses go through TTS) and to repeat back unclear transcriptions before acting. Skill instructions are separately budgeted by `SKILL_PROMPT_MAX_TOKENS`; when the full markdown for every skill does not fit, the prompt builder falls back to compact or minimal per-skill summaries rather than dropping skills entirely.
+- **Conversation window**: Short-term conversation history is bounded by `ConversationState(max_messages=..., max_tokens=...)`, configured via `CONVERSATION_MAX_MESSAGES` and `CONVERSATION_MAX_TOKENS`. Retention is turn-aware: it keeps whole recent user requests and their assistant/tool-result exchanges rather than cutting the window in the middle of a turn. Prompt selection uses an approximate token estimator based on serialized message size.
 - **Tool input/output**: Input is always JSON via `SKILL_INPUT` env var; output is plain text or JSON printed to stdout.
 - **OpenClaw porting**: Community OpenClaw skills can be ported by adding a `config.yaml` and `Dockerfile` alongside their `SKILL.md`. Use `scripts/port-skill.py` to scaffold these files.
 
@@ -188,6 +189,10 @@ Per-skill overrides for `memory`, `read_only`, and `extra_tmpfs` are supported v
 | `SILENCE_THRESHOLD` | `1000` | Mic amplitude to count as speech |
 | `SILENCE_DURATION` | `2.0` | Seconds of silence before ending recording |
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
+| `CONVERSATION_MAX_MESSAGES` | `24` | Max message-count budget for short-term context, retained as whole recent turns |
+| `CONVERSATION_MAX_TOKENS` | `6000` | Approximate token budget for short-term context sent to Claude |
+| `MEMORY_MAX_TOKENS` | `2000` | Approximate token budget for persisted memory injected into the system prompt |
+| `SKILL_PROMPT_MAX_TOKENS` | `4000` | Approximate token budget for skill instructions in the system prompt |
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
 | `MEMORY_VAULT_PATH` | `~/.miniclaw/memory` | Directory for Obsidian memory notes |
 

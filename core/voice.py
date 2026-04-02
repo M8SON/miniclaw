@@ -16,12 +16,10 @@ import logging
 import numpy as np
 import pyaudio
 import sounddevice as sd
-import whisper
-from kokoro import KPipeline
+
+from core.voice_backends import KOKORO_SAMPLE_RATE, KokoroTTSBackend, WhisperBackend
 
 logger = logging.getLogger(__name__)
-
-KOKORO_SAMPLE_RATE = 24000
 
 
 class VoiceInterface:
@@ -53,6 +51,8 @@ class VoiceInterface:
         tts_speed: float = 1.0,
         silence_threshold: int = 1000,
         silence_duration: float = 2.0,
+        stt_backend=None,
+        tts_backend=None,
     ):
         self.enable_tts = enable_tts
         self.silence_threshold = silence_threshold
@@ -64,19 +64,15 @@ class VoiceInterface:
         self._shared_audio = None
         self._shared_stream = None
 
-        logger.info("Loading Whisper wake model: %s", wake_model)
-        self.wake_model = whisper.load_model(wake_model)
-
-        logger.info("Loading Whisper transcription model: %s", whisper_model)
-        self.whisper_model = whisper.load_model(whisper_model)
-
-        if enable_tts:
-            logger.info("Loading Kokoro TTS pipeline (voice: %s)...", tts_voice)
-            self._tts = KPipeline(lang_code="a")
-            self._tts_voice = tts_voice
-            self._tts_speed = tts_speed
-        else:
-            self._tts = None
+        self.stt_backend = stt_backend or WhisperBackend(
+            wake_model=wake_model,
+            transcription_model=whisper_model,
+        )
+        self.tts_backend = (
+            tts_backend
+            if tts_backend is not None
+            else (KokoroTTSBackend(voice=tts_voice, speed=tts_speed) if enable_tts else None)
+        )
 
         logger.info("Models loaded — wake phrase: '%s'", self.wake_phrase)
 
@@ -126,12 +122,7 @@ class VoiceInterface:
 
                 # Transcribe window with tiny model
                 audio_float = window.astype(np.float32) / 32768.0
-                result = self.wake_model.transcribe(
-                    audio_float,
-                    language="en",
-                    fp16=False,
-                )
-                transcript = result["text"].lower().strip()
+                transcript = self.stt_backend.transcribe_wake_audio(audio_float)
 
                 if transcript:
                     logger.info("Wake window heard: '%s'", transcript)
@@ -262,15 +253,11 @@ class VoiceInterface:
         generated, so the first words play immediately without waiting for the
         full response to be synthesised.
         """
-        if not self.enable_tts or self._tts is None:
+        if not self.enable_tts or self.tts_backend is None:
             return
 
         try:
-            with sd.OutputStream(
-                samplerate=KOKORO_SAMPLE_RATE, channels=1, dtype="float32"
-            ) as stream:
-                for _, _, audio in self._tts(text, voice=self._tts_voice, speed=self._tts_speed):
-                    stream.write(audio)
+            self.tts_backend.speak(text)
         except Exception as e:
             logger.warning("TTS error: %s", e)
 
@@ -347,7 +334,6 @@ class VoiceInterface:
     def _transcribe(self, audio_file: str) -> str:
         """Transcribe a WAV file using the full Whisper model."""
         logger.info("Transcribing...")
-        result = self.whisper_model.transcribe(audio_file)
-        text = result["text"].strip()
+        text = self.stt_backend.transcribe_file(audio_file)
         logger.info("Transcribed: %s", text)
         return text

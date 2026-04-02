@@ -21,6 +21,19 @@ ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
 warn() { echo -e "  ${YELLOW}!${NC} $1"; }
 fail() { echo -e "  ${RED}✗${NC} $1"; exit 1; }
 
+venv_usable() {
+    [ -f ".venv/bin/activate" ] || return 1
+    [ -x ".venv/bin/python3" ] || return 1
+    [ -f ".venv/pyvenv.cfg" ] || return 1
+}
+
+create_venv() {
+    echo "  Creating virtual environment..."
+    if ! python3 -m venv .venv; then
+        fail "failed to create .venv. On Debian/Ubuntu, install python3-venv (for example: sudo apt install python3.12-venv) and try again"
+    fi
+}
+
 echo -e "\n${BOLD}MiniClaw${NC}"
 echo "──────────────────────────────"
 
@@ -34,9 +47,15 @@ ok "python3 $(python3 --version 2>&1 | cut -d' ' -f2)"
 # ── Virtual environment ──────────────────────────────────────────────────────
 
 if [ ! -d ".venv" ]; then
-    echo "  Creating virtual environment..."
-    python3 -m venv .venv
+    create_venv
+elif ! venv_usable; then
+    warn ".venv exists but is incomplete or broken — recreating it"
+    if ! /usr/bin/rm -rf -- .venv; then
+        fail "failed to remove broken .venv"
+    fi
+    create_venv
 fi
+
 source .venv/bin/activate
 ok "venv active"
 
