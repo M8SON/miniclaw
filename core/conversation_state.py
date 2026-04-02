@@ -30,7 +30,8 @@ class ConversationState:
 
     def append_assistant_content(self, content: list[dict]) -> None:
         """Append the assistant response blocks returned by Anthropic."""
-        self._messages.append({"role": "assistant", "content": content})
+        normalized = [self._normalize_content_block(block) for block in content]
+        self._messages.append({"role": "assistant", "content": normalized})
 
     def append_tool_results(self, tool_results: list[dict]) -> None:
         """Append tool results as the next user turn in Anthropic format."""
@@ -102,6 +103,19 @@ class ConversationState:
         """Approximate token count for a full turn using serialized message size."""
         serialized = json.dumps(turn, separators=(",", ":"), ensure_ascii=False)
         return max(1, len(serialized) // 4)
+
+    def _normalize_content_block(self, block):
+        """Convert SDK response blocks to plain JSON-serializable dicts."""
+        if isinstance(block, dict):
+            return block
+
+        if hasattr(block, "model_dump"):
+            return block.model_dump()
+
+        if hasattr(block, "dict"):
+            return block.dict()
+
+        return {"type": "text", "text": str(block)}
 
     def _split_turns(self, messages: list[dict]) -> list[list[dict]]:
         """

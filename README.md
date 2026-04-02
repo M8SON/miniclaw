@@ -98,6 +98,7 @@ Running costs are negligible — the hardware pays for itself in utility long be
 ```bash
 git clone https://github.com/M8SON/MiniClaw.git
 cd MiniClaw
+./run.sh --install-system-deps  # Debian/Ubuntu only: installs Docker + espeak-ng
 cp .env.example .env
 # Edit .env with your API keys
 ./run.sh          # text mode (default, no microphone needed)
@@ -105,7 +106,40 @@ cp .env.example .env
 ./run.sh --list   # list loaded skills and exit
 ```
 
-`run.sh` handles everything automatically: creates the virtual environment, installs dependencies, and builds any missing Docker containers before launching.
+`run.sh` handles Python setup automatically: creates the virtual environment, installs Python dependencies, and builds any missing Docker containers before launching.
+
+System packages are separate because they require privileged OS changes. On Debian/Ubuntu, you can opt into that setup with:
+
+```bash
+./run.sh --install-system-deps
+```
+
+That installs `docker.io` and `espeak-ng`, then starts the Docker service.
+
+## Testing
+
+MiniClaw now includes a small `unittest` smoke suite for core non-audio behavior, including:
+
+- conversation history normalization and pruning
+- native config-writing behavior for `set_env_var`
+- the `install_skill` voice flow via injected test doubles instead of live voice, Claude Code, or Docker builds
+
+Run it with:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+There is also an optional real integration harness for the `install_skill` flow. It uses the real Claude CLI and real Docker build path, but replaces microphone confirmation with scripted responses so it can run unattended:
+
+```bash
+.venv/bin/python scripts/test_install_skill_integration.py
+```
+
+Notes:
+- it requires `claude`, Docker, and valid auth/config on the machine
+- it creates a disposable skill and image, then cleans them up by default
+- pass `--keep-artifacts` if you want to inspect the generated files afterward
 
 ## Adding Skills
 

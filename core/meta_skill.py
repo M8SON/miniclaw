@@ -35,9 +35,20 @@ CONFIRM_TIMEOUT = 25  # seconds to wait for each spoken confirmation
 
 class MetaSkillExecutor:
 
-    def __init__(self, voice, orchestrator):
+    def __init__(
+        self,
+        voice,
+        orchestrator,
+        *,
+        run_claude_code=None,
+        trigger_build=None,
+        cleanup=None,
+    ):
         self.voice = voice
         self.orchestrator = orchestrator
+        self._run_claude_code = run_claude_code or _run_claude_code
+        self._trigger_build = trigger_build or _trigger_build
+        self._cleanup = cleanup or _cleanup
 
     # ── Public entry point ────────────────────────────────────────────────
 
@@ -58,16 +69,16 @@ class MetaSkillExecutor:
             return "Skill installation cancelled."
 
         self._speak("Writing skill files now. This may take a minute.")
-        success, output = _run_claude_code(skill_name, description)
+        success, output = self._run_claude_code(skill_name, description)
 
         if not success:
-            _cleanup(skill_name)
+            self._cleanup(skill_name)
             return f"Skill file generation failed. {output[:150]}"
 
         # Path traversal check
         ok, violations = _validate_paths(skill_name)
         if not ok:
-            _cleanup(skill_name)
+            self._cleanup(skill_name)
             logger.warning("Path traversal detected: %s", violations)
             return "Security check failed: files written outside allowed directories. Installation aborted."
 
@@ -78,7 +89,7 @@ class MetaSkillExecutor:
             try:
                 validate(dockerfile)
             except DockerfileValidationError as e:
-                _cleanup(skill_name)
+                self._cleanup(skill_name)
                 return f"Dockerfile validation failed: {e}. Installation aborted."
 
         # ── Phase 2: Confirm build ────────────────────────────────────────
@@ -96,13 +107,13 @@ class MetaSkillExecutor:
             f"Say 'confirm build' to build the Docker image, or 'cancel'."
         )
         if not self._confirm("confirm build"):
-            _cleanup(skill_name)
+            self._cleanup(skill_name)
             return "Skill installation cancelled before build."
 
         self._speak("Building Docker image. This may take a few minutes.")
-        build_ok, build_msg = _trigger_build(skill_name)
+        build_ok, build_msg = self._trigger_build(skill_name)
         if not build_ok:
-            _cleanup(skill_name)
+            self._cleanup(skill_name)
             return f"Docker build failed. {build_msg[:150]}"
 
         # ── Phase 3: Confirm restart ──────────────────────────────────────

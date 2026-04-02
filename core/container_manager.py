@@ -19,6 +19,7 @@ from datetime import date
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class ContainerManager:
@@ -31,6 +32,8 @@ class ContainerManager:
         self.memory_limit = memory_limit
         self._meta_skill_executor = None  # injected from main.py after construction
         self._orchestrator = None          # injected from main.py after construction
+        self.docker_available = False
+        self.docker_error = None
         self._native_handlers = {
             "install_skill": self._execute_install_skill,
             "set_env_var": self._execute_set_env_var,
@@ -46,10 +49,22 @@ class ContainerManager:
                 timeout=10,
             )
             if result.returncode != 0:
-                raise RuntimeError("Docker daemon is not running")
+                stderr = result.stderr.decode(errors="replace").lower()
+                if "permission denied" in stderr:
+                    self.docker_error = "Docker is installed but this session cannot access the daemon"
+                else:
+                    self.docker_error = "Docker daemon is not running"
+                logger.warning(self.docker_error)
+                return
+            self.docker_available = True
+            self.docker_error = None
             logger.info("Docker is available")
         except FileNotFoundError:
-            raise RuntimeError("Docker is not installed")
+            self.docker_error = "Docker is not installed"
+            logger.warning(self.docker_error)
+        except subprocess.TimeoutExpired:
+            self.docker_error = "Docker daemon did not respond in time"
+            logger.warning(self.docker_error)
 
     def execute_skill(self, skill, tool_input: dict) -> str:
         """
@@ -64,6 +79,9 @@ class ContainerManager:
         # Native skills bypass Docker entirely
         if config.get("type") == "native":
             return self._execute_native_skill(skill, tool_input)
+
+        if not self.docker_available:
+            return f"Skill unavailable: {self.docker_error or 'Docker is unavailable'}"
 
         image = config.get("image", "")
         timeout = config.get("timeout_seconds", self.DEFAULT_TIMEOUT)
@@ -195,7 +213,7 @@ class ContainerManager:
                 )
 
         # Write to .env
-        env_path = Path(".env")
+        env_path = REPO_ROOT / ".env"
         try:
             existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
         except OSError as e:
