@@ -35,5 +35,8 @@ jobs:
       - name: Install Python dependencies
         run: .venv/bin/pip install -r requirements.txt
 
+      - name: Make test runner executable
+        run: chmod +x ./scripts/test.sh
+
       - name: Run fast test suite
         run: ./scripts/test.sh
