@@ -49,6 +49,7 @@ class ContainerManager:
                 timeout=10,
             )
             if result.returncode != 0:
+                self.docker_available = False
                 stderr = result.stderr.decode(errors="replace").lower()
                 if "permission denied" in stderr:
                     self.docker_error = "Docker is installed but this session cannot access the daemon"
@@ -60,9 +61,11 @@ class ContainerManager:
             self.docker_error = None
             logger.info("Docker is available")
         except FileNotFoundError:
+            self.docker_available = False
             self.docker_error = "Docker is not installed"
             logger.warning(self.docker_error)
         except subprocess.TimeoutExpired:
+            self.docker_available = False
             self.docker_error = "Docker daemon did not respond in time"
             logger.warning(self.docker_error)
 
