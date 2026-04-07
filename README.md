@@ -24,7 +24,7 @@ The system uses two layers for extensibility:
 - Conversation session mode — stays active between follow-ups until idle timeout
 - Streaming TTS — Kokoro chunks play as they're generated, first words spoken immediately
 - Voice skill installation — say "add a skill that does X" and Claude Code writes, builds, and loads it
-- Persistent memory — say "remember this" and it's saved as a markdown note, recalled automatically next session
+- Persistent memory — plain markdown notes for transparency, plus automatic MemPalace retrieval when available
 - Modular skill system — add capabilities without touching core code
 - OpenClaw skill compatibility — use existing community skills
 - Docker-sandboxed execution — security by default, resource-capped containers
@@ -107,6 +107,16 @@ cp .env.example .env
 ```
 
 `run.sh` handles Python setup automatically: creates the virtual environment, installs Python dependencies, and builds any missing Docker containers before launching.
+
+Optional MemPalace setup:
+
+```bash
+.venv/bin/pip install mempalace
+mempalace init ~/projects/miniclaw-memory
+mempalace mine ~/projects/miniclaw-memory
+```
+
+MiniClaw defaults to `MEMORY_BACKEND=auto`, so once MemPalace is installed it becomes the active long-term retrieval layer automatically.
 
 System packages are separate because they require privileged OS changes. On Debian/Ubuntu, you can opt into that setup with:
 
@@ -254,6 +264,15 @@ With that enabled, MiniClaw injects MemPalace's wake-up context into the system 
 
 The native `save_memory` skill now mirrors into MemPalace automatically whenever MiniClaw is using MemPalace mode and MemPalace is available locally. It still writes the markdown note first. If you want to override that behavior, set `MEMPALACE_SAVE_MEMORY=true` to force mirroring on or `MEMPALACE_SAVE_MEMORY=false` to force it off.
 
+### How the two memory layers work together
+
+- Markdown vault: human-readable, easy to inspect, edit, back up, and open in Obsidian
+- MemPalace: compact wake-up memory plus semantic recall during live conversation
+- Write path: `save_memory` always writes the markdown note first, then mirrors into MemPalace when active
+- Read path: MiniClaw prefers MemPalace in `auto` mode, but falls back to markdown notes if MemPalace is missing
+
+In practice, the markdown vault is the durable source you can always inspect by hand, while MemPalace is the retrieval layer that keeps token usage under control and brings back relevant memory at runtime.
+
 ## Configuration
 
 Key environment variables in `.env`:
@@ -325,7 +344,7 @@ MiniClaw/
 │   ├── soundcloud/
 │   ├── playwright_scraper/
 │   ├── install_skill/             # Voice skill installation (native, no container)
-│   ├── save_memory/               # Persistent memory (native, writes to ~/.miniclaw/memory)
+│   ├── save_memory/               # Persistent memory (native, writes markdown and can mirror to MemPalace)
 │   └── skill_tells_random/        # Example voice-installed skill
 ├── containers/                    # Docker containers for skill execution
 │   ├── base/                      # Shared base image (python:3.11-slim + requests)
@@ -351,6 +370,7 @@ MiniClaw/
 - [x] Voice skill installation via Claude Code
 - [x] Playwright web scraper skill (handles JS-rendered + bot-protected sites)
 - [x] Persistent memory with Obsidian integration
+- [x] MemPalace-backed wake-up memory and live semantic recall
 - [ ] TTS interruption — stop speaking when user talks over the assistant
 - [ ] AI HAT+ 2 accelerated Whisper (offload STT to Hailo-8L NPU)
 - [ ] AI HAT+ 2 accelerated Kokoro TTS (offload synthesis to Hailo-8L NPU)
