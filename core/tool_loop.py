@@ -7,8 +7,14 @@ one user message.
 
 import json
 import logging
+import re
 
 import anthropic
+
+_REMEMBER_RE = re.compile(
+    r"\n?##\s*remember:\n+topic:\s*(.+?)\n+content:\s*(.+?)(?=\n##|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +124,7 @@ class ToolLoop:
             skill = self.skill_loader.get_skill(tool_name)
             if skill:
                 result = self.container_manager.execute_skill(skill, tool_input)
+                result = self._extract_and_save_remember(result)
             else:
                 result = f"Unknown tool: {tool_name}"
 
@@ -131,6 +138,23 @@ class ToolLoop:
             )
 
         return tool_results
+
+    def _extract_and_save_remember(self, result: str) -> str:
+        """Strip ## remember: blocks from skill output and file them to the memory vault."""
+        if not self.memory_provider or "## remember:" not in result.lower():
+            return result
+
+        cleaned = result
+        for match in _REMEMBER_RE.finditer(result):
+            topic = match.group(1).strip()
+            content = match.group(2).strip()
+            if topic and content:
+                filename = self.memory_provider.save_note(topic, content)
+                if filename:
+                    logger.info("Skill filed memory: %s", filename)
+            cleaned = cleaned.replace(match.group(0), "")
+
+        return cleaned.strip() or "Skill completed with no output"
 
     def _extract_text(self, response) -> str:
         """Extract text content from Claude's response."""

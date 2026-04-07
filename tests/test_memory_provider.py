@@ -20,7 +20,7 @@ class MemoryProviderTests(unittest.TestCase):
             (vault / "2026-04-01_one.md").write_text("---\n---\n\nfirst memory\n", encoding="utf-8")
             (vault / "2026-04-02_two.md").write_text("---\n---\n\nsecond memory\n", encoding="utf-8")
 
-            provider = MemoryProvider(vault_path=vault, max_tokens=4)
+            provider = MemoryProvider(vault_path=vault, backend="vault", max_tokens=4)
 
             self.assertEqual(provider.load_for_prompt(), "second memory")
 

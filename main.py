@@ -37,6 +37,39 @@ def _print_loaded_skills(orchestrator):
             print(f"    - {s['name']}")
 
 
+def _fetch_weather_for_context(location: str, api_key: str) -> str:
+    """Fetch a one-line weather summary for startup context. Returns empty string on any failure."""
+    try:
+        import json as _json
+        import urllib.parse
+        import urllib.request
+        params = urllib.parse.urlencode({"q": location, "appid": api_key, "units": "imperial"})
+        url = f"http://api.openweathermap.org/data/2.5/weather?{params}"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = _json.loads(resp.read())
+        temp = round(data["main"]["temp"])
+        desc = data["weather"][0]["description"]
+        return f"Weather in {data['name']}: {temp}°F, {desc}."
+    except Exception:
+        return ""
+
+
+def _build_startup_context() -> str:
+    """Return a brief context string with date, time, and optional weather."""
+    from datetime import datetime
+    now = datetime.now()
+    context = now.strftime("Today is %A, %B %-d. The time is %-I:%M %p.")
+
+    location = os.getenv("WEATHER_LOCATION", "").strip()
+    api_key = os.getenv("OPENWEATHER_API_KEY", "").strip()
+    if location and api_key:
+        weather = _fetch_weather_for_context(location, api_key)
+        if weather:
+            context += f" {weather}"
+
+    return context
+
+
 def build_voice_interface():
     """Construct the default production voice interface from environment config."""
     from core.voice import VoiceInterface
@@ -66,6 +99,7 @@ def run_voice_mode(orchestrator, voice=None):
         orchestrator=orchestrator,
     )
 
+    orchestrator.inject_startup_context(_build_startup_context())
     voice.play_startup_sound()
 
     print("\n" + "=" * 60)
@@ -78,6 +112,10 @@ def run_voice_mode(orchestrator, voice=None):
 
     _print_loaded_skills(orchestrator)
     print()
+
+    greeting = orchestrator.greet()
+    print(f"Assistant: {greeting}\n")
+    voice.speak(greeting)
 
     # How long to wait for follow-up speech before returning to wake word detection
     conversation_idle_timeout = float(os.getenv("CONVERSATION_IDLE_TIMEOUT", "8"))
@@ -106,8 +144,9 @@ def run_voice_mode(orchestrator, voice=None):
                 # Check for exit
                 exit_words = ["goodbye", "exit", "quit", "stop"]
                 if any(word in transcription.lower() for word in exit_words):
-                    print("\nAssistant: Goodbye!")
-                    voice.speak("Goodbye!")
+                    response = orchestrator.close_session()
+                    print(f"\nAssistant: {response}")
+                    voice.speak(response)
                     return
 
                 voice.play_thinking_sound()
@@ -138,7 +177,7 @@ def run_text_mode(orchestrator):
                 continue
 
             if user_input.lower() in ("quit", "exit", "q"):
-                print("Goodbye!")
+                print(f"Assistant: {orchestrator.close_session()}")
                 break
 
             if user_input.lower() == "/skills":

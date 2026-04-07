@@ -110,6 +110,42 @@ class Orchestrator:
         )
         logger.info("Skills reloaded: %d skills active", len(self.skills))
 
+    def greet(self) -> str:
+        """Generate a contextual opening greeting based on startup context and memory."""
+        return self.tool_loop.run(
+            user_message=(
+                "You have just started up. Based on the current time, day, and anything "
+                "you know about Mason from memory, say a brief natural greeting. "
+                "One or two sentences. Do not end with a question."
+            ),
+            system_prompt=self.system_prompt,
+        )
+
+    def inject_startup_context(self, context: str) -> None:
+        """Append date/time/weather context to the system prompt before the first turn."""
+        if context.strip():
+            self.system_prompt += f"\n--- Current Context ---\n{context}\n"
+
+    def close_session(self) -> str:
+        """
+        End the current session: save anything worth remembering, then say goodbye.
+
+        Sends a final internal message so Claude can call save_memory if the
+        conversation contained anything worth keeping, then returns a spoken goodbye.
+        """
+        if not self.conversation_state.messages:
+            return "Goodbye!"
+
+        return self.tool_loop.run(
+            user_message=(
+                "The user is ending this conversation. "
+                "If anything worth remembering came up — a preference, a project detail, "
+                "something to keep in mind for next time — use save_memory to save it now. "
+                "Then say a brief, warm goodbye."
+            ),
+            system_prompt=self.system_prompt,
+        )
+
     def reset_conversation(self):
         """Clear conversation history."""
         self.conversation_state.clear()

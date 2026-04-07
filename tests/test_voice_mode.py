@@ -23,6 +23,15 @@ class FakeOrchestrator:
         self.processed.append(transcription)
         return self.responses.pop(0)
 
+    def close_session(self):
+        return "Goodbye!"
+
+    def inject_startup_context(self, context: str):
+        pass
+
+    def greet(self):
+        return "Good morning."
+
 
 class FakeVoice:
     def __init__(self, wake_results, listen_results):
@@ -70,7 +79,7 @@ class VoiceModeTests(unittest.TestCase):
         self.assertIn("Assistant: Hello from MiniClaw", rendered)
         self.assertIn("Assistant: Goodbye!", rendered)
         self.assertEqual(orchestrator.processed, ["tell me something"])
-        self.assertEqual(voice.spoken, ["Hello from MiniClaw", "Goodbye!"])
+        self.assertEqual(voice.spoken, ["Good morning.", "Hello from MiniClaw", "Goodbye!"])
         self.assertEqual(voice.startup_sounds, 1)
         self.assertEqual(voice.thinking_sounds, 1)
         self.assertIsNotNone(orchestrator.container_manager._meta_skill_executor)
@@ -89,7 +98,7 @@ class VoiceModeTests(unittest.TestCase):
         rendered = output.getvalue()
         self.assertIn("Session ended.", rendered)
         self.assertEqual(orchestrator.processed, [])
-        self.assertEqual(voice.spoken, [])
+        self.assertEqual(voice.spoken, ["Good morning."])  # greeting fires before wake loop
         self.assertEqual(voice.thinking_sounds, 0)
 
 

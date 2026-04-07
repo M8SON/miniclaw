@@ -275,7 +275,11 @@ class ContainerManager:
         date_str = date.today().isoformat()
         slug = re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")
         filename = f"{date_str}_{slug}.md"
-        note_path = vault_path / filename
+
+        # If a note with the same topic slug already exists, update it in place
+        # rather than creating a duplicate with a new date prefix.
+        existing = sorted(vault_path.glob(f"*_{slug}.md"))
+        note_path = existing[-1] if existing else vault_path / filename
 
         note = f"---\ndate: {date_str}\ntopic: {topic}\n---\n\n{content}\n"
         try:
@@ -283,20 +287,27 @@ class ContainerManager:
         except OSError as e:
             return f"Error saving memory: {e}"
 
-        mempalace_saved = self._save_memory_to_mempalace(topic=topic, content=content, note_path=note_path)
+        mempalace_saved = self._save_memory_to_mempalace(
+            topic=topic, content=content, note_path=note_path,
+            note_id=f"vault_{note_path.stem}",
+        )
         logger.info("Memory saved: %s", note_path)
         if mempalace_saved:
             return f"Memory saved: {filename} and filed to MemPalace."
         return f"Memory saved: {filename}"
 
-    def _save_memory_to_mempalace(self, topic: str, content: str, note_path: Path) -> bool:
+    def _save_memory_to_mempalace(
+        self, topic: str, content: str, note_path: Path, note_id: str = ""
+    ) -> bool:
         """Optionally mirror saved memories into MemPalace."""
         if not self._should_mirror_memory_to_mempalace():
             return False
 
         try:
             bridge = MemPalaceBridge()
-            return bridge.save_memory(topic=topic, content=content, source_file=str(note_path))
+            return bridge.save_memory(
+                topic=topic, content=content, source_file=str(note_path), note_id=note_id
+            )
         except Exception:
             logger.exception("Failed to mirror memory into MemPalace")
             return False
