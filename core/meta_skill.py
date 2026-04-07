@@ -158,7 +158,13 @@ class MetaSkillExecutor:
             return False
 
         required = expected_phrase.lower().split()
-        return all(w in t for w in required)
+        pos = 0
+        for word in required:
+            idx = t.find(word, pos)
+            if idx == -1:
+                return False
+            pos = idx + len(word)
+        return True
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────

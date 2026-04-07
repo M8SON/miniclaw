@@ -139,6 +139,11 @@ class VoiceInterface:
             stream.close()
             audio.terminate()
             return False
+        except Exception:
+            stream.stop_stream()
+            stream.close()
+            audio.terminate()
+            raise
 
     def listen(self, max_wait_seconds: float = 0) -> str | None:
         """
@@ -151,12 +156,13 @@ class VoiceInterface:
         seconds (0 = wait forever). Used for conversation idle timeout.
         """
         audio_file = self._record_until_silence(max_wait_seconds=max_wait_seconds)
-        transcription = self._transcribe(audio_file)
-
         try:
-            os.unlink(audio_file)
-        except OSError:
-            pass
+            transcription = self._transcribe(audio_file)
+        finally:
+            try:
+                os.unlink(audio_file)
+            except OSError:
+                pass
 
         if not transcription or len(transcription.strip()) < 3:
             return None
@@ -316,11 +322,11 @@ class VoiceInterface:
 
         except KeyboardInterrupt:
             pass
-
-        sample_width = audio.get_sample_size(self.FORMAT)
-        stream.stop_stream()
-        stream.close()
-        audio.terminate()
+        finally:
+            sample_width = audio.get_sample_size(self.FORMAT)
+            stream.stop_stream()
+            stream.close()
+            audio.terminate()
 
         temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         with wave.open(temp_file.name, "wb") as wf:
