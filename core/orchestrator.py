@@ -45,6 +45,7 @@ class Orchestrator:
         conversation_max_messages: int | None = 24,
         conversation_max_tokens: int | None = 6000,
         memory_max_tokens: int | None = 2000,
+        memory_recall_max_tokens: int | None = 600,
         skill_prompt_max_tokens: int | None = 4000,
     ):
         # Claude client
@@ -65,7 +66,10 @@ class Orchestrator:
         )
 
         # Prompt context providers
-        self.memory_provider = MemoryProvider(max_tokens=memory_max_tokens)
+        self.memory_provider = MemoryProvider(
+            max_tokens=memory_max_tokens,
+            recall_max_tokens=memory_recall_max_tokens,
+        )
         self.prompt_builder = PromptBuilder(
             memory_provider=self.memory_provider,
             max_skill_tokens=skill_prompt_max_tokens,
@@ -76,6 +80,7 @@ class Orchestrator:
             skill_loader=self.skill_loader,
             container_manager=self.container_manager,
             conversation_state=self.conversation_state,
+            memory_provider=self.memory_provider,
         )
 
         # System prompt - tells Claude what it is and how to use skills

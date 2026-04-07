@@ -240,6 +240,20 @@ Memories are saved as markdown files in `~/.miniclaw/memory/` (configurable via 
 
 **Obsidian integration** — open `~/.miniclaw/memory` as an Obsidian vault to browse, search, edit, or delete memories with a full GUI. Since the files are plain markdown, everything works out of the box.
 
+### MemPalace integration
+
+MiniClaw can also use [MemPalace](https://github.com/milla-jovovich/mempalace) as a compact memory backend. This is now the preferred path when MemPalace is installed, while still keeping the existing markdown vault intact as fallback.
+
+1. Install MemPalace in the same Python environment or make the `mempalace` CLI available on `PATH`.
+2. Initialize and populate a palace:
+   `mempalace init ~/some-project`
+   `mempalace mine ~/some-project`
+3. Leave `MEMORY_BACKEND=auto` or set `MEMORY_BACKEND=mempalace` in `.env`.
+
+With that enabled, MiniClaw injects MemPalace's wake-up context into the system prompt instead of raw markdown notes. During live conversation it also performs compact MemPalace recall for the current user message, so relevant memory can surface organically turn by turn. If MemPalace is unavailable, `auto` falls back to the markdown vault automatically.
+
+The native `save_memory` skill now mirrors into MemPalace automatically whenever MiniClaw is using MemPalace mode and MemPalace is available locally. It still writes the markdown note first. If you want to override that behavior, set `MEMPALACE_SAVE_MEMORY=true` to force mirroring on or `MEMPALACE_SAVE_MEMORY=false` to force it off.
+
 ## Configuration
 
 Key environment variables in `.env`:
@@ -257,11 +271,18 @@ Key environment variables in `.env`:
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
 | `CONVERSATION_MAX_MESSAGES` | `24` | Max message-count budget for short-term context, retained as whole recent turns |
 | `CONVERSATION_MAX_TOKENS` | `6000` | Approximate token budget for short-term context sent to Claude |
+| `MEMORY_BACKEND` | `auto` | `vault`, `mempalace`, or `auto` |
 | `MEMORY_MAX_TOKENS` | `2000` | Approximate token budget for persisted memory injected into the system prompt |
+| `MEMORY_RECALL_MAX_TOKENS` | `600` | Approximate token budget for live memory recall added per user turn |
 | `SKILL_PROMPT_MAX_TOKENS` | `4000` | Approximate token budget for skill instructions in the system prompt |
 | `WAKE_MODEL` | `tiny` | Wake word detection model size |
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
 | `MEMORY_VAULT_PATH` | `~/.miniclaw/memory` | Directory for memory notes (point Obsidian here) |
+| `MEMPALACE_PALACE_PATH` | `~/.mempalace/palace` | Override MemPalace data directory |
+| `MEMPALACE_WING` | — | Optional wing filter for MemPalace wake-up memory |
+| `MEMPALACE_SAVE_MEMORY` | `auto` | `auto`, `true`, or `false` for MemPalace mirroring on `save_memory` |
+| `MEMPALACE_MEMORY_WING` | `wing_miniclaw` | Target wing when mirroring saved memories |
+| `MEMPALACE_MEMORY_ROOM` | `assistant-memory` | Target room when mirroring saved memories |
 | `BRAVE_API_KEY` | — | Required for web search skill |
 | `OPENWEATHER_API_KEY` | — | Required for weather skill |
 

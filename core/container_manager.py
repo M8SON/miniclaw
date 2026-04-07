@@ -18,6 +18,8 @@ import logging
 from datetime import date
 from pathlib import Path
 
+from core.mempalace_bridge import MemPalaceBridge
+
 logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -257,7 +259,7 @@ class ContainerManager:
         return f"Set {key}. All skills are now available."
 
     def _execute_save_memory(self, tool_input: dict) -> str:
-        """Write a memory note as a markdown file to the memory vault."""
+        """Write a memory note to the markdown vault and optionally MemPalace."""
         topic = str(tool_input.get("topic", "")).strip()
         content = str(tool_input.get("content", "")).strip()
 
@@ -281,8 +283,41 @@ class ContainerManager:
         except OSError as e:
             return f"Error saving memory: {e}"
 
+        mempalace_saved = self._save_memory_to_mempalace(topic=topic, content=content, note_path=note_path)
         logger.info("Memory saved: %s", note_path)
+        if mempalace_saved:
+            return f"Memory saved: {filename} and filed to MemPalace."
         return f"Memory saved: {filename}"
+
+    def _save_memory_to_mempalace(self, topic: str, content: str, note_path: Path) -> bool:
+        """Optionally mirror saved memories into MemPalace."""
+        if not self._should_mirror_memory_to_mempalace():
+            return False
+
+        try:
+            bridge = MemPalaceBridge()
+            return bridge.save_memory(topic=topic, content=content, source_file=str(note_path))
+        except Exception:
+            logger.exception("Failed to mirror memory into MemPalace")
+            return False
+
+    def _should_mirror_memory_to_mempalace(self) -> bool:
+        """Return True when saved memories should also be filed into MemPalace."""
+        override = os.environ.get("MEMPALACE_SAVE_MEMORY", "").strip().lower()
+        if override in {"1", "true", "yes", "on"}:
+            return True
+        if override in {"0", "false", "no", "off"}:
+            return False
+
+        backend = os.environ.get("MEMORY_BACKEND", "auto").strip().lower()
+        if backend == "vault":
+            return False
+
+        try:
+            return MemPalaceBridge().is_available()
+        except Exception:
+            logger.exception("Failed to detect MemPalace availability")
+            return False
 
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""

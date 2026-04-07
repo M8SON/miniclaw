@@ -23,6 +23,7 @@ class ToolLoop:
         skill_loader,
         container_manager,
         conversation_state,
+        memory_provider=None,
         max_rounds: int = 10,
     ):
         self.client = client
@@ -30,6 +31,7 @@ class ToolLoop:
         self.skill_loader = skill_loader
         self.container_manager = container_manager
         self.conversation_state = conversation_state
+        self.memory_provider = memory_provider
         self.max_rounds = max_rounds
 
     def run(self, user_message: str, system_prompt: str) -> str:
@@ -43,6 +45,10 @@ class ToolLoop:
           4. Repeat until Claude produces a final text response
         """
         self.conversation_state.append_user_text(user_message)
+        effective_system_prompt = self._augment_system_prompt(
+            system_prompt=system_prompt,
+            user_message=user_message,
+        )
 
         tool_definitions = self.skill_loader.get_tool_definitions()
         rounds = 0
@@ -53,7 +59,7 @@ class ToolLoop:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
-                system=system_prompt,
+                system=effective_system_prompt,
                 messages=self.conversation_state.select_messages_for_prompt(),
                 tools=tool_definitions if tool_definitions else anthropic.NOT_GIVEN,
             )
@@ -79,6 +85,23 @@ class ToolLoop:
         logger.warning("Max tool rounds reached (%d)", self.max_rounds)
         self.conversation_state.prune()
         return "I ran into an issue processing that request. Could you try again?"
+
+    def _augment_system_prompt(self, system_prompt: str, user_message: str) -> str:
+        """Attach live memory recall relevant to the current user message."""
+        if not self.memory_provider:
+            return system_prompt
+
+        recalled = self.memory_provider.recall_for_message(user_message)
+        if not recalled:
+            return system_prompt
+
+        return (
+            f"{system_prompt}\n"
+            "\n--- Relevant Memory Recall ---\n"
+            "Use this as supporting memory for the current turn. Verify details against it "
+            "before making claims about prior preferences, projects, or past events.\n"
+            f"{recalled}\n"
+        )
 
     def _handle_tool_calls(self, response) -> list[dict]:
         """Execute tool calls from Claude's response."""
