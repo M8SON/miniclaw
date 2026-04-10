@@ -411,7 +411,10 @@ class ContainerManager:
                 urllib.request.urlopen(url, timeout=5)
                 return f"Dashboard updated with {', '.join(panels)}."
             except ProcessLookupError:
-                # Chromium died — stale lock, clean up and relaunch
+                # Chromium died — stale lock, cancel old timer and relaunch
+                if self._dashboard_timer:
+                    self._dashboard_timer.cancel()
+                    self._dashboard_timer = None
                 try:
                     self._cleanup_dashboard_lock(lock)
                 except Exception:

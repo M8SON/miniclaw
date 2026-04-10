@@ -119,7 +119,8 @@ body {
   </div>
   {% endif %}
 
-  {# ── Sidebar widgets ── #}
+  {# ── Sidebar widgets (only render column if at least one sidebar panel is active) ── #}
+  {% if 'weather' in panels or 'stocks' in panels or 'music' in panels %}
   <div class="sidebar">
 
     {% if 'weather' in panels %}
@@ -169,6 +170,7 @@ body {
     {% endif %}
 
   </div>
+  {% endif %}
 </div>
 
 <script>
