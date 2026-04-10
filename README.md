@@ -28,6 +28,7 @@ The system uses two layers for extensibility:
 - Modular skill system — add capabilities without touching core code
 - OpenClaw skill compatibility — use existing community skills
 - Docker-sandboxed execution — security by default, resource-capped containers
+- Visual dashboard skill — voice-triggered monitor display with news/OSINT, weather, stocks, and music
 - R2-D2 style audio feedback — startup chime and thinking sound
 - Text mode for development and testing without a microphone
 
@@ -40,6 +41,7 @@ The system uses two layers for extensibility:
 - `espeak-ng` system package (`sudo apt install espeak-ng`) — required by Kokoro TTS
 - Microphone + speaker (for voice mode)
 - Optional: [Brave Search API key](https://brave.com/search/api/), [OpenWeatherMap API key](https://openweathermap.org/api)
+- Optional: HDMI monitor + `chromium-browser` (`sudo apt install chromium-browser`) — required for the dashboard skill
 
 ### Recommended Hardware
 
@@ -304,6 +306,7 @@ Key environment variables in `.env`:
 | `MEMPALACE_MEMORY_ROOM` | `assistant-memory` | Target room when mirroring saved memories |
 | `BRAVE_API_KEY` | — | Required for web search skill |
 | `OPENWEATHER_API_KEY` | — | Required for weather skill |
+| `WEATHER_LOCATION` | `New York,NY` | City used by the dashboard weather panel |
 
 ## Power Consumption
 
@@ -343,6 +346,7 @@ MiniClaw/
 │   ├── web_search/
 │   ├── soundcloud/
 │   ├── playwright_scraper/
+│   ├── dashboard/                 # Visual dashboard on connected monitor (native, no container)
 │   ├── install_skill/             # Voice skill installation (native, no container)
 │   ├── save_memory/               # Persistent memory (native, writes markdown and can mirror to MemPalace)
 │   └── skill_tells_random/        # Example voice-installed skill
@@ -352,6 +356,7 @@ MiniClaw/
 │   ├── web_search/
 │   ├── soundcloud/
 │   ├── playwright_scraper/
+│   ├── dashboard/                 # Flask server + Jinja2 template (runs detached, host Chromium points here)
 │   └── skill_tells_random/        # Example voice-installed skill
 ├── requirements.txt
 ├── .env.example
@@ -371,6 +376,7 @@ MiniClaw/
 - [x] Playwright web scraper skill (handles JS-rendered + bot-protected sites)
 - [x] Persistent memory with Obsidian integration
 - [x] MemPalace-backed wake-up memory and live semantic recall
+- [x] Visual dashboard skill (news/OSINT, weather, stocks, music — voice-triggered, auto-closes)
 - [ ] TTS interruption — stop speaking when user talks over the assistant
 - [ ] AI HAT+ 2 accelerated Whisper (offload STT to Hailo-8L NPU)
 - [ ] AI HAT+ 2 accelerated Kokoro TTS (offload synthesis to Hailo-8L NPU)
