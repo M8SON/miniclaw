@@ -1,6 +1,9 @@
 # Secrets
 .env
 
+# Brainstorming session files
+.superpowers/
+
 # Python
 __pycache__/
 *.py[cod]
