@@ -102,6 +102,7 @@ class ContainerManager:
             memory=config.get("memory", self.memory_limit),
             read_only=config.get("read_only", True),
             extra_tmpfs=config.get("extra_tmpfs", []),
+            volumes=config.get("volumes", []),
         )
 
         return self._run_container(cmd, tool_input, timeout)
@@ -115,6 +116,7 @@ class ContainerManager:
         memory: str | None = None,
         read_only: bool = True,
         extra_tmpfs: list[str] | None = None,
+        volumes: list[str] | None = None,
     ) -> list[str]:
         """Build a docker run command with security constraints.
 
@@ -137,6 +139,10 @@ class ContainerManager:
         cmd.extend(["--tmpfs=/tmp:size=64m"])
         for tmpfs in (extra_tmpfs or []):
             cmd.extend(["--tmpfs", tmpfs])
+
+        for volume in (volumes or []):
+            expanded = os.path.expanduser(volume)
+            cmd.extend(["-v", expanded])
 
         if env_vars:
             for key, value in env_vars.items():
