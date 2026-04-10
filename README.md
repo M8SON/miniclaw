@@ -110,16 +110,6 @@ cp .env.example .env
 
 `run.sh` handles Python setup automatically: creates the virtual environment, installs Python dependencies, and builds any missing Docker containers before launching.
 
-Optional MemPalace setup:
-
-```bash
-.venv/bin/pip install mempalace
-mempalace init ~/projects/miniclaw-memory
-mempalace mine ~/projects/miniclaw-memory
-```
-
-MiniClaw defaults to `MEMORY_BACKEND=auto`, so once MemPalace is installed it becomes the active long-term retrieval layer automatically.
-
 System packages are separate because they require privileged OS changes. On Debian/Ubuntu, you can opt into that setup with:
 
 ```bash
@@ -248,32 +238,26 @@ MiniClaw can remember things across conversations. Just say:
 > *"computer, don't forget I prefer temperatures in Celsius"*
 > *"computer, make a note that the garage code is 1234"*
 
-Memories are saved as markdown files in `~/.miniclaw/memory/` (configurable via `MEMORY_VAULT_PATH`). Each file is named `YYYY-MM-DD_topic.md` with YAML frontmatter. On every startup the orchestrator reads the vault and injects the contents into Claude's context, so past memories are available automatically without any special commands.
+Memories are saved as markdown files in `~/.miniclaw/memory/` (configurable via `MEMORY_VAULT_PATH`). Each file is named `YYYY-MM-DD_topic.md` with YAML frontmatter.
+
+**How recall works:**
+
+- **Startup** — vault notes are synced into a local chromadb vector store and the most recent ones are injected into Claude's system prompt
+- **Per message** — semantic search over the vector store surfaces relevant memories alongside the user's request, even when the phrasing doesn't match exactly (e.g. asking "what's my wife's name?" finds a note that says "Sarah is Mason's spouse")
+- chromadb is included in the default dependencies — no extra setup required
 
 **Obsidian integration** — open `~/.miniclaw/memory` as an Obsidian vault to browse, search, edit, or delete memories with a full GUI. Since the files are plain markdown, everything works out of the box.
 
-### MemPalace integration
+### Optional: MemPalace
 
-MiniClaw can also use [MemPalace](https://github.com/milla-jovovich/mempalace) as a compact memory backend. This is now the preferred path when MemPalace is installed, while still keeping the existing markdown vault intact as fallback.
+[MemPalace](https://github.com/milla-jovovich/mempalace) is an optional upgrade that adds curated wake-up summaries and a CLI for browsing the vector store. The core semantic recall works without it.
 
-1. Install MemPalace in the same Python environment or make the `mempalace` CLI available on `PATH`.
-2. Initialize and populate a palace:
-   `mempalace init ~/some-project`
-   `mempalace mine ~/some-project`
-3. Leave `MEMORY_BACKEND=auto` or set `MEMORY_BACKEND=mempalace` in `.env`.
+```bash
+pip install mempalace
+mempalace init ~/projects/miniclaw-memory
+```
 
-With that enabled, MiniClaw injects MemPalace's wake-up context into the system prompt instead of raw markdown notes. During live conversation it also performs compact MemPalace recall for the current user message, so relevant memory can surface organically turn by turn. If MemPalace is unavailable, `auto` falls back to the markdown vault automatically.
-
-The native `save_memory` skill now mirrors into MemPalace automatically whenever MiniClaw is using MemPalace mode and MemPalace is available locally. It still writes the markdown note first. If you want to override that behavior, set `MEMPALACE_SAVE_MEMORY=true` to force mirroring on or `MEMPALACE_SAVE_MEMORY=false` to force it off.
-
-### How the two memory layers work together
-
-- Markdown vault: human-readable, easy to inspect, edit, back up, and open in Obsidian
-- MemPalace: compact wake-up memory plus semantic recall during live conversation
-- Write path: `save_memory` always writes the markdown note first, then mirrors into MemPalace when active
-- Read path: MiniClaw prefers MemPalace in `auto` mode, but falls back to markdown notes if MemPalace is missing
-
-In practice, the markdown vault is the durable source you can always inspect by hand, while MemPalace is the retrieval layer that keeps token usage under control and brings back relevant memory at runtime.
+Set `MEMORY_BACKEND=mempalace` in `.env` to activate it, or leave `MEMORY_BACKEND=auto` to use it when installed and fall back to chromadb otherwise.
 
 ## Configuration
 
