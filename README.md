@@ -174,61 +174,19 @@ The scripted voice-loop harness exercises the real `run_voice_mode` control flow
 
 ## Adding Skills
 
-### By voice
-
-The easiest way. Say:
+Just ask:
 
 > *"computer, add a skill that tells me a random joke"*
 
-Claude Code will write the skill files, validate them, and walk you through three confirmation steps before building and loading the skill. No coding required.
+Claude Code writes the skill files, validates them, and walks you through three confirmation steps before building and loading the skill. No coding required. See `skills/skill_tells_random/` for an example of a skill created this way.
 
-See `skills/skill_tells_random/` for an example of a skill created this way.
-
-### Manually
-
-Create a directory in `skills/<name>/` with two files, and a matching directory in `containers/<name>/` with a `Dockerfile` and `app.py`.
-
-**`skills/<name>/SKILL.md`** — Tells Claude when and how to use the skill:
-
-```
----
-name: get_weather
-description: Get current weather for a location
-requires:
-  env:
-    - OPENWEATHER_API_KEY
----
-
-## When to use
-## Inputs
-## How to respond
-```
-
-**`skills/<name>/config.yaml`** — Tells the orchestrator how to execute it:
-
-```yaml
-image: miniclaw/my-skill:latest
-env_passthrough:
-  - MY_API_KEY
-timeout_seconds: 15
-devices: []
-```
-
-**`containers/<name>/app.py`** — Reads `SKILL_INPUT` (JSON) from the environment, prints the result to stdout.
-
-**`containers/<name>/Dockerfile`** — Must start with `FROM miniclaw/base:latest`.
-
-`run.sh` auto-discovers any `containers/*/Dockerfile` and builds the image automatically on next launch — no need to register it anywhere.
-
-### Porting an OpenClaw skill
+To port a community [OpenClaw](https://github.com/openclaw/openclaw) skill:
 
 ```bash
 python3 scripts/port-skill.py /path/to/openclaw-skill/
 ```
 
-This reads the `SKILL.md`, generates `config.yaml` and a container scaffold (`Dockerfile` + `app.py`), and prints the next steps.
-
-Skills that require missing environment variables or binaries are skipped at load time, and structurally invalid skills are tracked separately so the assistant can explain whether a capability is unavailable or misconfigured.
+For the skill file structure and developer details, see `CLAUDE.md`.
 
 ## Memory
 
