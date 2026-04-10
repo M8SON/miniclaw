@@ -386,6 +386,9 @@ class ContainerManager:
         """Close the dashboard: kill Chromium, stop container, cancel timer."""
         if not DASHBOARD_LOCK.exists():
             return "No dashboard is currently open."
+        if self._dashboard_timer:
+            self._dashboard_timer.cancel()
+            self._dashboard_timer = None
         try:
             lock = json.loads(DASHBOARD_LOCK.read_text())
             self._cleanup_dashboard_lock(lock)
@@ -393,9 +396,6 @@ class ContainerManager:
         except Exception as exc:
             logger.exception("Error closing dashboard")
             return f"Error closing dashboard: {exc}"
-        if self._dashboard_timer:
-            self._dashboard_timer.cancel()
-            self._dashboard_timer = None
         return "Display closed."
 
     def _open_dashboard(self, panels: list, timeout_minutes: int) -> str:
@@ -413,7 +413,7 @@ class ContainerManager:
             except ProcessLookupError:
                 # Chromium died — stale lock, clean up and relaunch
                 try:
-                    self._cleanup_dashboard_lock(json.loads(DASHBOARD_LOCK.read_text()))
+                    self._cleanup_dashboard_lock(lock)
                 except Exception:
                     pass
                 DASHBOARD_LOCK.unlink(missing_ok=True)
