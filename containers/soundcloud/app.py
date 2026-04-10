@@ -5,11 +5,19 @@ SoundCloud skill container - searches and plays music via yt-dlp and mpv.
 import os
 import sys
 import json
+import time
 import subprocess
 
 
+def write_now_playing(title: str) -> None:
+    try:
+        with open("/miniclaw/now_playing.json", "w") as f:
+            json.dump({"title": title, "timestamp": time.time()}, f)
+    except OSError:
+        pass
+
+
 def search_and_play(query: str) -> str:
-    # Get stream URL from SoundCloud via yt-dlp
     search_result = subprocess.run(
         [
             "yt-dlp",
@@ -35,13 +43,13 @@ def search_and_play(query: str) -> str:
     title = lines[0]
     stream_url = lines[1]
 
-    # Play audio via mpv (non-blocking: starts playback and returns)
     subprocess.Popen(
         ["mpv", "--no-video", "--really-quiet", stream_url],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
+    write_now_playing(title)
     return f"Now playing: {title}"
 
 

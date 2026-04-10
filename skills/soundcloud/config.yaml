@@ -2,3 +2,5 @@ image: miniclaw/soundcloud:latest
 timeout_seconds: 45
 devices:
   - /dev/snd
+volumes:
+  - ~/.miniclaw:/miniclaw
