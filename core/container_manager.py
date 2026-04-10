@@ -13,8 +13,11 @@ import os
 import re
 import json
 import time
+import signal
+import threading
 import subprocess
 import logging
+import urllib.request
 from datetime import date
 from pathlib import Path
 
@@ -22,6 +25,8 @@ from core.mempalace_bridge import MemPalaceBridge
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
+DASHBOARD_PORT = 7860
+DASHBOARD_LOCK = Path.home() / ".miniclaw" / "dashboard.lock"
 
 
 class ContainerManager:
@@ -36,10 +41,12 @@ class ContainerManager:
         self._orchestrator = None          # injected from main.py after construction
         self.docker_available = False
         self.docker_error = None
+        self._dashboard_timer: threading.Timer | None = None
         self._native_handlers = {
             "install_skill": self._execute_install_skill,
             "set_env_var": self._execute_set_env_var,
             "save_memory": self._execute_save_memory,
+            "dashboard": self._execute_dashboard,
         }
         self._verify_docker()
 
@@ -335,6 +342,177 @@ class ContainerManager:
         except Exception:
             logger.exception("Failed to detect MemPalace availability")
             return False
+
+    def _find_chromium(self) -> str | None:
+        """Return the path to the first Chromium binary found on PATH, or None."""
+        for name in ["chromium-browser", "chromium", "google-chrome-stable", "google-chrome"]:
+            result = subprocess.run(["which", name], capture_output=True, text=True)
+            if result.returncode == 0:
+                return result.stdout.strip()
+        return None
+
+    def _cleanup_dashboard_lock(self, lock: dict) -> None:
+        """Kill host Chromium and stop the Docker container from a lock dict."""
+        chromium_pid = lock.get("chromium_pid")
+        container_id = lock.get("container_id")
+        if chromium_pid:
+            try:
+                os.kill(chromium_pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if container_id:
+            try:
+                subprocess.run(
+                    ["docker", "stop", container_id],
+                    capture_output=True,
+                    timeout=15,
+                )
+            except Exception:
+                pass
+
+    def _close_dashboard_internal(self) -> None:
+        """Called by the auto-timeout timer. Closes dashboard without returning a value."""
+        if DASHBOARD_LOCK.exists():
+            try:
+                lock = json.loads(DASHBOARD_LOCK.read_text())
+                self._cleanup_dashboard_lock(lock)
+            except Exception:
+                logger.exception("Error during dashboard auto-close")
+            DASHBOARD_LOCK.unlink(missing_ok=True)
+        self._dashboard_timer = None
+        logger.info("Dashboard auto-closed by timeout")
+
+    def _close_dashboard(self) -> str:
+        """Close the dashboard: kill Chromium, stop container, cancel timer."""
+        if not DASHBOARD_LOCK.exists():
+            return "No dashboard is currently open."
+        try:
+            lock = json.loads(DASHBOARD_LOCK.read_text())
+            self._cleanup_dashboard_lock(lock)
+            DASHBOARD_LOCK.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.exception("Error closing dashboard")
+            return f"Error closing dashboard: {exc}"
+        if self._dashboard_timer:
+            self._dashboard_timer.cancel()
+            self._dashboard_timer = None
+        return "Display closed."
+
+    def _open_dashboard(self, panels: list, timeout_minutes: int) -> str:
+        """Start the dashboard container + host Chromium, write lock, start timer."""
+        # --- Handle already-running dashboard ---
+        if DASHBOARD_LOCK.exists():
+            try:
+                lock = json.loads(DASHBOARD_LOCK.read_text())
+                os.kill(lock["chromium_pid"], 0)  # signal 0 = existence check
+                # Still running — update panels
+                panels_str = ",".join(panels)
+                url = f"http://localhost:{lock['port']}/refresh?panels={panels_str}"
+                urllib.request.urlopen(url, timeout=5)
+                return f"Dashboard updated with {', '.join(panels)}."
+            except ProcessLookupError:
+                # Chromium died — stale lock, clean up and relaunch
+                try:
+                    self._cleanup_dashboard_lock(json.loads(DASHBOARD_LOCK.read_text()))
+                except Exception:
+                    pass
+                DASHBOARD_LOCK.unlink(missing_ok=True)
+            except Exception:
+                DASHBOARD_LOCK.unlink(missing_ok=True)
+
+        if not self.docker_available:
+            return f"Dashboard unavailable: {self.docker_error or 'Docker is not running'}."
+
+        # Ensure ~/.miniclaw exists (volume mount target)
+        miniclaw_dir = Path.home() / ".miniclaw"
+        miniclaw_dir.mkdir(parents=True, exist_ok=True)
+
+        dashboard_config = json.dumps({
+            "news_accounts": ["OSINTDefender"],
+            "stock_tickers": ["AAPL", "TSLA", "NVDA"],
+        })
+        weather_loc = os.environ.get("WEATHER_LOCATION", "New York,NY")
+
+        # --- Start Flask container (detached) ---
+        docker_cmd = [
+            "docker", "run", "-d",
+            "--network=host",
+            "--memory=512m",
+            "--cpus=1.5",
+            "--security-opt=no-new-privileges",
+            "--tmpfs=/tmp:size=64m",
+            "--tmpfs=/dev/shm:size=256m",
+            "-v", f"{miniclaw_dir}:/miniclaw",
+            "-e", f"SKILL_INPUT={json.dumps({'panels': panels, 'timeout_minutes': timeout_minutes})}",
+            "-e", f"DASHBOARD_CONFIG={dashboard_config}",
+            "-e", f"WEATHER_LOCATION={weather_loc}",
+            "miniclaw/dashboard:latest",
+        ]
+        result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return f"Failed to start dashboard: {result.stderr.strip()[:300]}"
+
+        container_id = result.stdout.strip()
+
+        # --- Wait for Flask to be ready (up to 10s) ---
+        for _ in range(20):
+            try:
+                urllib.request.urlopen(
+                    f"http://localhost:{DASHBOARD_PORT}/health", timeout=1
+                )
+                break
+            except Exception:
+                time.sleep(0.5)
+        else:
+            subprocess.run(["docker", "stop", container_id], capture_output=True, timeout=10)
+            return "Dashboard container started but server did not respond."
+
+        # --- Launch Chromium on host in kiosk mode ---
+        chromium = self._find_chromium()
+        if not chromium:
+            subprocess.run(["docker", "stop", container_id], capture_output=True, timeout=10)
+            return "I don't see a display connected or Chromium is not installed."
+
+        try:
+            proc = subprocess.Popen(
+                [chromium, "--kiosk", "--noerrdialogs",
+                 "--disable-infobars", f"http://localhost:{DASHBOARD_PORT}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            subprocess.run(["docker", "stop", container_id], capture_output=True, timeout=10)
+            return f"Failed to launch display: {exc}"
+
+        # --- Write lock file ---
+        DASHBOARD_LOCK.write_text(json.dumps({
+            "chromium_pid": proc.pid,
+            "container_id": container_id,
+            "port": DASHBOARD_PORT,
+        }))
+
+        # --- Start auto-close timer ---
+        if self._dashboard_timer:
+            self._dashboard_timer.cancel()
+        self._dashboard_timer = threading.Timer(
+            timeout_minutes * 60, self._close_dashboard_internal
+        )
+        self._dashboard_timer.daemon = True
+        self._dashboard_timer.start()
+
+        panel_list = ", ".join(panels) if panels else "all panels"
+        return f"Dashboard is up with {panel_list}."
+
+    def _execute_dashboard(self, tool_input: dict) -> str:
+        """Route open/close dashboard actions."""
+        action = str(tool_input.get("action", "")).strip().lower()
+        if action == "open":
+            panels = tool_input.get("panels", ["news", "weather", "stocks", "music"])
+            timeout_minutes = int(tool_input.get("timeout_minutes", 10))
+            return self._open_dashboard(panels, timeout_minutes)
+        if action == "close":
+            return self._close_dashboard()
+        return f"Unknown dashboard action '{action}'. Use 'open' or 'close'."
 
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""
