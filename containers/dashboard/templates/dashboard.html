@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MiniClaw</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0d1117;
+  color: #cdd9e5;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+}
+.dashboard {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  height: 100vh;
+  gap: 12px;
+  padding: 16px;
+}
+.main-panel {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 20px;
+  overflow-y: auto;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.widget {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  flex: 1;
+  overflow: hidden;
+}
+.panel-header {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #30363d;
+}
+.news-header  { color: #58a6ff; }
+.weather-header { color: #e3b341; }
+.stocks-header { color: #3fb950; }
+.music-header  { color: #f78166; }
+.news-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #21262d;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.news-item:last-child { border-bottom: none; }
+.news-source { font-size: 11px; color: #8b949e; margin-bottom: 3px; }
+.weather-temp { font-size: 36px; font-weight: 300; margin-bottom: 6px; }
+.weather-detail { font-size: 12px; color: #8b949e; line-height: 2; }
+.stock-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #21262d;
+}
+.stock-row:last-child { border-bottom: none; }
+.stock-ticker { font-weight: 600; }
+.pos { color: #3fb950; }
+.neg { color: #f85149; }
+.music-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.muted { color: #8b949e; font-size: 13px; }
+.unavailable { color: #8b949e; font-size: 12px; font-style: italic; }
+.clock {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  font-size: 12px;
+  color: #484f58;
+}
+</style>
+</head>
+<body>
+
+<div class="clock" id="clock"></div>
+
+<div class="dashboard">
+
+  {# ── Main panel: news takes focus, or first panel if no news ── #}
+  {% if 'news' in panels %}
+  <div class="main-panel">
+    <div class="panel-header news-header">News &amp; OSINT</div>
+    {% if data.get('news') %}
+      {% for item in data['news'] %}
+      <div class="news-item">
+        <div class="news-source">{{ item.source }}</div>
+        {{ item.text }}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="unavailable">Feed unavailable</div>
+    {% endif %}
+  </div>
+  {% elif panels %}
+  <div class="main-panel">
+    <div class="panel-header">{{ panels[0]|upper }}</div>
+    <div class="unavailable">No content</div>
+  </div>
+  {% else %}
+  <div class="main-panel">
+    <div class="panel-header">Dashboard</div>
+    <div class="unavailable">No panels selected</div>
+  </div>
+  {% endif %}
+
+  {# ── Sidebar widgets ── #}
+  <div class="sidebar">
+
+    {% if 'weather' in panels %}
+    <div class="widget">
+      <div class="panel-header weather-header">Weather</div>
+      {% set w = data.get('weather', {}) %}
+      {% if w and not w.get('error') %}
+        <div class="weather-temp">{{ w.temp }}</div>
+        <div class="weather-detail">
+          Tonight low: {{ w.tonight_low }}<br>
+          Tomorrow high: {{ w.tomorrow_high }}<br>
+          {{ w.location }}
+        </div>
+      {% else %}
+        <div class="unavailable">{{ w.get('error', 'Unavailable') }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if 'stocks' in panels %}
+    <div class="widget">
+      <div class="panel-header stocks-header">Stocks</div>
+      {% if data.get('stocks') %}
+        {% for s in data['stocks'] %}
+        <div class="stock-row">
+          <span class="stock-ticker">{{ s.ticker }}</span>
+          <span>{{ s.price }}</span>
+          <span class="{{ 'pos' if s.positive else 'neg' }}">{{ s.change }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="unavailable">Unavailable</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if 'music' in panels %}
+    <div class="widget">
+      <div class="panel-header music-header">Now Playing</div>
+      {% set m = data.get('music', {}) %}
+      {% if m.get('status') == 'playing' %}
+        <div class="music-title">{{ m.title }}</div>
+      {% else %}
+        <div class="muted">Nothing playing</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<script>
+// Live clock
+function tick() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+tick();
+setInterval(tick, 1000);
+
+// Poll for panel-change reload signal
+setInterval(() => {
+  fetch('/poll')
+    .then(r => r.json())
+    .then(d => { if (d.reload) window.location.reload(); })
+    .catch(() => {});
+}, 2000);
+</script>
+
+</body>
+</html>
