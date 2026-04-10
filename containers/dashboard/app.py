@@ -88,9 +88,11 @@ def fetch_weather() -> dict:
     """Fetch current weather from open-meteo (free, no API key)."""
     location = os.environ.get("WEATHER_LOCATION", "New York,NY")
     try:
+        # open-meteo geocoding doesn't understand "City,State" — use city name only
+        city = location.split(",")[0].strip()
         geo_resp = requests.get(
             "https://geocoding-api.open-meteo.com/v1/search",
-            params={"name": location, "count": 1},
+            params={"name": city, "count": 1},
             timeout=10,
         )
         geo_resp.raise_for_status()
