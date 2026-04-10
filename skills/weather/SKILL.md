@@ -1,9 +1,6 @@
 ---
 name: get_weather
 description: Get current weather information for a specific location
-requires:
-  env:
-    - OPENWEATHER_API_KEY
 ---
 
 # Weather Skill

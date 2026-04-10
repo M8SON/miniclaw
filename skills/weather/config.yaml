@@ -1,5 +1,3 @@
 image: miniclaw/weather:latest
-env_passthrough:
-  - OPENWEATHER_API_KEY
 timeout_seconds: 15
 devices: []

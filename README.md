@@ -40,7 +40,7 @@ The system uses two layers for extensibility:
 - [Anthropic API key](https://console.anthropic.com/)
 - `espeak-ng` system package (`sudo apt install espeak-ng`) — required by Kokoro TTS
 - Microphone + speaker (for voice mode)
-- Optional: [Brave Search API key](https://brave.com/search/api/), [OpenWeatherMap API key](https://openweathermap.org/api)
+- Optional: [Brave Search API key](https://brave.com/search/api/)
 - Optional: HDMI monitor + `chromium-browser` (`sudo apt install chromium-browser`) — required for the dashboard skill
 
 ### Recommended Hardware
@@ -289,8 +289,7 @@ Key environment variables in `.env`:
 | `MEMPALACE_MEMORY_WING` | `wing_miniclaw` | Target wing when mirroring saved memories |
 | `MEMPALACE_MEMORY_ROOM` | `assistant-memory` | Target room when mirroring saved memories |
 | `BRAVE_API_KEY` | — | Required for web search skill |
-| `OPENWEATHER_API_KEY` | — | Required for weather skill |
-| `WEATHER_LOCATION` | `New York,NY` | City used by the dashboard weather panel |
+| `WEATHER_LOCATION` | `New York,NY` | Default city for the dashboard weather panel |
 
 ## Power Consumption
 
