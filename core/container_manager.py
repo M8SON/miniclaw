@@ -141,7 +141,7 @@ class ContainerManager:
             cmd.extend(["--tmpfs", tmpfs])
 
         for volume in (volumes or []):
-            expanded = os.path.expanduser(volume)
+            expanded = os.path.expandvars(os.path.expanduser(volume))
             cmd.extend(["-v", expanded])
 
         if env_vars:
