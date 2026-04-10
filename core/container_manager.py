@@ -431,8 +431,18 @@ class ContainerManager:
         miniclaw_dir.mkdir(parents=True, exist_ok=True)
 
         dashboard_config = json.dumps({
-            "news_accounts": ["OSINTDefender"],
-            "stock_tickers": ["AAPL", "TSLA", "NVDA"],
+            "rss_feeds": [
+                "https://vtdigger.org/feed/",
+                "https://www.sevendaysvt.com/rss",
+                "https://bellingcat.com/feed/",
+                "https://www.twz.com/rss",
+                "https://www.aljazeera.com/xml/rss/all.xml",
+            ],
+            "gdelt_queries": [
+                "Burlington Vermont",
+                "conflict military geopolitics",
+            ],
+            "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
         })
         weather_loc = os.environ.get("WEATHER_LOCATION", "New York,NY")
 

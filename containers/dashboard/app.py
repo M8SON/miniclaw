@@ -13,14 +13,9 @@ import json
 import time
 import threading
 
+import feedparser
 import requests
 from flask import Flask, render_template, request, jsonify
-
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
 
 try:
     import yfinance as yf
@@ -35,53 +30,78 @@ _state_lock = threading.Lock()
 _state = {
     "panels": [],
     "needs_refresh": False,
-    "news_accounts": ["OSINTDefender"],
-    "stock_tickers": ["AAPL", "TSLA", "NVDA"],
+    "rss_feeds": [],
+    "gdelt_queries": [],
+    "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
 }
+
+DEFAULT_RSS_FEEDS = [
+    "https://vtdigger.org/feed/",
+    "https://www.sevendaysvt.com/rss",
+    "https://bellingcat.com/feed/",
+    "https://www.twz.com/rss",
+    "https://www.aljazeera.com/xml/rss/all.xml",
+]
+
+DEFAULT_GDELT_QUERIES = [
+    "Burlington Vermont",
+    "conflict military geopolitics",
+]
 
 
 # ---------------------------------------------------------------------------
 # Data fetchers
 # ---------------------------------------------------------------------------
 
-def fetch_news(accounts: list) -> list:
-    """Scrape Twitter/X timelines for the given accounts via Playwright."""
-    if not PLAYWRIGHT_AVAILABLE:
-        return []
+def fetch_rss(feeds: list) -> list:
+    """Fetch headlines from RSS/Atom feeds."""
     items = []
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-            )
-            for account in accounts:
-                try:
-                    page = browser.new_page(
-                        user_agent=(
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/120.0.0.0 Safari/537.36"
-                        )
-                    )
-                    page.goto(
-                        f"https://twitter.com/{account}",
-                        wait_until="domcontentloaded",
-                        timeout=30000,
-                    )
-                    page.wait_for_timeout(2000)
-                    tweets = page.query_selector_all('[data-testid="tweetText"]')
-                    for tweet in tweets[:6]:
-                        text = tweet.inner_text().strip()
-                        if text:
-                            items.append({"source": f"@{account}", "text": text})
-                    page.close()
-                except Exception:
-                    pass
-            browser.close()
-    except Exception:
-        pass
+    for feed_url in feeds:
+        try:
+            feed = feedparser.parse(feed_url)
+            source = feed.feed.get("title", feed_url)
+            for entry in feed.entries[:3]:
+                title = entry.get("title", "").strip()
+                if title:
+                    items.append({"source": source, "text": title})
+        except Exception:
+            pass
     return items
+
+
+def fetch_gdelt(queries: list) -> list:
+    """Fetch headlines from GDELT v2 Doc API."""
+    items = []
+    seen = set()
+    for query in queries:
+        try:
+            resp = requests.get(
+                "https://api.gdeltproject.org/api/v2/doc/doc",
+                params={"query": query, "mode": "artlist", "maxrecords": 5, "format": "json"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            for article in resp.json().get("articles", []):
+                title = article.get("title", "").strip()
+                domain = article.get("domain", "")
+                if title and title not in seen:
+                    seen.add(title)
+                    items.append({"source": domain, "text": title})
+        except Exception:
+            pass
+    return items
+
+
+def fetch_news(rss_feeds: list, gdelt_queries: list) -> list:
+    """Combine RSS and GDELT headlines, deduplicated."""
+    seen = set()
+    items = []
+    for item in fetch_rss(rss_feeds) + fetch_gdelt(gdelt_queries):
+        key = item["text"].lower()[:60]
+        if key not in seen:
+            seen.add(key)
+            items.append(item)
+    return items[:20]
 
 
 def fetch_weather() -> dict:
@@ -203,12 +223,13 @@ def refresh():
 def index():
     with _state_lock:
         panels = list(_state["panels"])
-        news_accounts = list(_state["news_accounts"])
+        rss_feeds = list(_state["rss_feeds"])
+        gdelt_queries = list(_state["gdelt_queries"])
         stock_tickers = list(_state["stock_tickers"])
 
     data = {}
     if "news" in panels:
-        data["news"] = fetch_news(news_accounts)
+        data["news"] = fetch_news(rss_feeds, gdelt_queries)
     if "weather" in panels:
         data["weather"] = fetch_weather()
     if "stocks" in panels:
@@ -238,8 +259,9 @@ def main():
 
     with _state_lock:
         _state["panels"] = inp.get("panels", ["news", "weather", "stocks", "music"])
-        _state["news_accounts"] = cfg.get("news_accounts", ["OSINTDefender"])
-        _state["stock_tickers"] = cfg.get("stock_tickers", ["AAPL", "TSLA", "NVDA"])
+        _state["rss_feeds"] = cfg.get("rss_feeds", DEFAULT_RSS_FEEDS)
+        _state["gdelt_queries"] = cfg.get("gdelt_queries", DEFAULT_GDELT_QUERIES)
+        _state["stock_tickers"] = cfg.get("stock_tickers", ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"])
 
     app.run(host="0.0.0.0", port=7860, debug=False, threaded=True)
 
