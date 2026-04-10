@@ -98,6 +98,9 @@ docker_run() {
 }
 
 launch_miniclaw() {
+    # Ensure shared state directory exists for skill inter-container communication
+    mkdir -p "$HOME/.miniclaw"
+
     if [ "$DOCKER_USE_SG" = true ]; then
         local quoted=(".venv/bin/python3" "main.py")
         local arg
