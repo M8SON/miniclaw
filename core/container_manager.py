@@ -398,7 +398,7 @@ class ContainerManager:
             return f"Error closing dashboard: {exc}"
         return "Display closed."
 
-    def _open_dashboard(self, panels: list, timeout_minutes: int) -> str:
+    def _open_dashboard(self, panels: list, timeout_minutes: int, location: str = "", news_sources: list = None, gdelt_queries: list = None) -> str:
         """Start the dashboard container + host Chromium, write lock, start timer."""
         # --- Handle already-running dashboard ---
         if DASHBOARD_LOCK.exists():
@@ -430,21 +430,30 @@ class ContainerManager:
         miniclaw_dir = Path.home() / ".miniclaw"
         miniclaw_dir.mkdir(parents=True, exist_ok=True)
 
+        # --- Build RSS feed list from selected source groups ---
+        rss_source_map = {
+            "osint":    ["https://bellingcat.com/feed/", "https://www.twz.com/rss"],
+            "world":    ["https://www.aljazeera.com/xml/rss/all.xml"],
+            "local_vt": ["https://vtdigger.org/feed/", "https://www.sevendaysvt.com/rss"],
+        }
+        selected_sources = news_sources or ["osint", "world"]
+        rss_feeds = []
+        for src in selected_sources:
+            rss_feeds.extend(rss_source_map.get(src, []))
+
+        # --- Build GDELT queries ---
+        queries = list(gdelt_queries or [])
+        # Add location query if Claude passed one and it's not already included
+        city = location.strip() or os.environ.get("WEATHER_LOCATION", "New York,NY").split(",")[0].strip()
+        if city and not any(city.lower() in q.lower() for q in queries):
+            queries.append(city)
+
         dashboard_config = json.dumps({
-            "rss_feeds": [
-                "https://vtdigger.org/feed/",
-                "https://www.sevendaysvt.com/rss",
-                "https://bellingcat.com/feed/",
-                "https://www.twz.com/rss",
-                "https://www.aljazeera.com/xml/rss/all.xml",
-            ],
-            "gdelt_queries": [
-                "Burlington Vermont",
-                "conflict military geopolitics",
-            ],
+            "rss_feeds": rss_feeds,
+            "gdelt_queries": queries,
             "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
         })
-        weather_loc = os.environ.get("WEATHER_LOCATION", "New York,NY")
+        weather_loc = location.strip() or os.environ.get("WEATHER_LOCATION", "New York,NY")
 
         # --- Start Flask container (detached) ---
         docker_cmd = [
@@ -522,7 +531,10 @@ class ContainerManager:
         if action == "open":
             panels = tool_input.get("panels", ["news", "weather", "stocks", "music"])
             timeout_minutes = int(tool_input.get("timeout_minutes", 10))
-            return self._open_dashboard(panels, timeout_minutes)
+            location = tool_input.get("location", "")
+            news_sources = tool_input.get("news_sources", ["osint", "world"])
+            gdelt_queries = tool_input.get("gdelt_queries", [])
+            return self._open_dashboard(panels, timeout_minutes, location, news_sources, gdelt_queries)
         if action == "close":
             return self._close_dashboard()
         return f"Unknown dashboard action '{action}'. Use 'open' or 'close'."
