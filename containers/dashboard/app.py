@@ -269,11 +269,29 @@ def poll():
 @app.route("/refresh")
 def refresh():
     panels_str = request.args.get("panels", "")
-    if panels_str:
-        panels = [p.strip() for p in panels_str.split(",") if p.strip()]
-        with _state_lock:
-            _state["panels"] = panels
-            _state["needs_refresh"] = True
+    gdelt_str = request.args.get("gdelt_queries", "")
+    sources_str = request.args.get("news_sources", "")
+
+    rss_source_map = {
+        "osint":    ["https://bellingcat.com/feed/", "https://www.twz.com/rss"],
+        "world":    ["https://www.aljazeera.com/xml/rss/all.xml"],
+        "local_vt": ["https://vtdigger.org/feed/", "https://www.sevendaysvt.com/rss"],
+    }
+
+    with _state_lock:
+        if panels_str:
+            _state["panels"] = [p.strip() for p in panels_str.split(",") if p.strip()]
+        if gdelt_str:
+            _state["gdelt_queries"] = [q.strip() for q in gdelt_str.split("|") if q.strip()]
+        if sources_str:
+            sources = [s.strip() for s in sources_str.split(",") if s.strip()]
+            feeds = []
+            for src in sources:
+                feeds.extend(rss_source_map.get(src, []))
+            if feeds:
+                _state["rss_feeds"] = feeds
+        _state["needs_refresh"] = True
+
     return jsonify({"status": "ok"})
 
 

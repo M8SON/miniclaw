@@ -18,6 +18,7 @@ import threading
 import subprocess
 import logging
 import urllib.request
+import urllib.parse
 from datetime import date
 from pathlib import Path
 
@@ -405,9 +406,13 @@ class ContainerManager:
             try:
                 lock = json.loads(DASHBOARD_LOCK.read_text())
                 os.kill(lock["chromium_pid"], 0)  # signal 0 = existence check
-                # Still running — update panels
-                panels_str = ",".join(panels)
-                url = f"http://localhost:{lock['port']}/refresh?panels={panels_str}"
+                # Still running — push content update
+                params = {"panels": ",".join(panels)}
+                if gdelt_queries:
+                    params["gdelt_queries"] = "|".join(gdelt_queries)
+                if news_sources:
+                    params["news_sources"] = ",".join(news_sources)
+                url = f"http://localhost:{lock['port']}/refresh?" + urllib.parse.urlencode(params)
                 urllib.request.urlopen(url, timeout=5)
                 return f"Dashboard updated with {', '.join(panels)}."
             except ProcessLookupError:

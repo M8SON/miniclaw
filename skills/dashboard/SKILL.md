@@ -99,8 +99,22 @@ Infer panels from the user's request:
 - "dashboard" / "everything" / no specific panel → `["news", "weather", "stocks", "music"]`
 - Combinations: "news and weather" → `["news", "weather"]`
 
+## Live topic updates
+
+If the dashboard is already open, calling this skill with `action: "open"` and new parameters will update the content in place — no need to close and reopen.
+
+Use this whenever the user asks to change what they're looking at:
+- "show me news on the new Toyota" → `gdelt_queries: ["Toyota new model 2026"]`
+- "show me what's happening in the Middle East" → `gdelt_queries: ["Middle East conflict news"]`
+- "switch to climate news" → `gdelt_queries: ["climate environment"]`
+- "show me local news" → `gdelt_queries: ["Burlington Vermont"]`, `news_sources: ["local_vt"]`
+- "show me everything" → restore default queries + all sources
+
+Build GDELT queries to match the topic precisely. Multiple queries can be combined — each fetches up to 5 articles. Be specific: "Toyota Camry 2026 hybrid" is better than "Toyota news".
+
 ## How to respond
 
 - After opening: confirm what's on screen. Example: "Dashboard is up with local Burlington news, conflict feeds, and weather."
+- After a live update: "Switched to Middle East news." or "Showing Toyota headlines now."
 - After closing: "Display closed."
 - Keep responses short — the user is looking at the screen, not listening for detail.
