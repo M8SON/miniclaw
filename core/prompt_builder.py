@@ -13,7 +13,7 @@ from core.memory_provider import MemoryProvider
 class PromptBuilder:
     """Build the full system prompt used for Claude requests."""
 
-    ALWAYS_FULL_SKILLS = {"set_env_var"}
+    ALWAYS_FULL_SKILLS = {"set_env_var", "save_memory", "install_skill"}
 
     BASE_PROMPT = (
         "Your name is Computer. You are Mason's personal voice assistant, running on a Raspberry Pi. "
@@ -44,16 +44,28 @@ class PromptBuilder:
         self,
         memory_provider: MemoryProvider | None = None,
         max_skill_tokens: int | None = 4000,
+        skill_selector=None,
     ):
         self.memory_provider = memory_provider or MemoryProvider()
         self.max_skill_tokens = max_skill_tokens
+        self._skill_selector = skill_selector
 
-    def build(self, skills: dict, skipped_skills: dict, invalid_skills: dict | None = None) -> str:
+    def build(
+        self,
+        skills: dict,
+        skipped_skills: dict,
+        invalid_skills: dict | None = None,
+        user_message: str | None = None,
+    ) -> str:
         """
         Build the system prompt including memories and skill instructions.
 
         Each skill's markdown body is appended so Claude understands when and
         how to use each tool, not just the tool schema.
+
+        When a skill_selector is configured and user_message is provided, only
+        the semantically relevant skills (plus ALWAYS_FULL_SKILLS) are expanded
+        in full — the rest collapse to compact one-liners.
         """
         prompt = self.BASE_PROMPT
 
@@ -61,7 +73,7 @@ class PromptBuilder:
         if memories:
             prompt += f"\n--- Remembered from past conversations ---\n{memories}\n"
 
-        skill_context = self._render_skill_context(skills)
+        skill_context = self._render_skill_context(skills, user_message=user_message)
         if skill_context:
             prompt += skill_context
 
@@ -88,10 +100,44 @@ class PromptBuilder:
 
         return prompt
 
-    def _render_skill_context(self, skills: dict) -> str:
+    def _render_with_selector(self, skills: dict, user_message: str) -> str:
+        """
+        Render skill context using semantic selection.
+
+        Skills in the selected set (plus ALWAYS_FULL_SKILLS) get full
+        instructions. All others get a single compact line.
+        """
+        selected = self._skill_selector.select(user_message)
+        expand_names = selected | self.ALWAYS_FULL_SKILLS
+
+        full_blocks = []
+        compact_lines = []
+
+        for skill in skills.values():
+            if skill.name in expand_names:
+                full_blocks.append(f"\n### {skill.name}\n{skill.instructions}\n")
+            else:
+                compact_lines.append(f"- {skill.name}: {skill.description}")
+
+        result = "\n--- Available Skills ---\n"
+        result += "".join(full_blocks)
+        if compact_lines:
+            result += "\nOther available skills (ask to use them):\n"
+            result += "\n".join(compact_lines) + "\n"
+        return result
+
+    def _render_skill_context(self, skills: dict, user_message: str | None = None) -> str:
         """Render available skill instructions within the configured budget."""
         if not skills:
             return ""
+
+        # Use semantic selection when selector is active and we have a user message
+        if (
+            user_message
+            and self._skill_selector is not None
+            and self._skill_selector.available
+        ):
+            return self._render_with_selector(skills, user_message)
 
         full_blocks = {
             skill.name: f"\n### {skill.name}\n{skill.instructions}\n"
