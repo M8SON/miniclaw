@@ -20,6 +20,7 @@ from core.container_manager import ContainerManager
 from core.conversation_state import ConversationState
 from core.memory_provider import MemoryProvider
 from core.prompt_builder import PromptBuilder
+from core.skill_selector import SkillSelector
 from core.tool_loop import ToolLoop
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class Orchestrator:
         memory_max_tokens: int | None = 2000,
         memory_recall_max_tokens: int | None = 600,
         skill_prompt_max_tokens: int | None = 4000,
+        skill_select_top_k: int = 2,
     ):
         # Claude client
         self.client = anthropic.Anthropic(api_key=anthropic_api_key)
@@ -55,6 +57,10 @@ class Orchestrator:
         # Load skills
         self.skill_loader = SkillLoader(search_paths=skill_paths)
         self.skills = self.skill_loader.load_all()
+
+        # Semantic skill selector — indexes skills at startup
+        self.skill_selector = SkillSelector(top_k=skill_select_top_k)
+        self.skill_selector.index(self.skills)
 
         # Container manager
         self.container_manager = ContainerManager(memory_limit=container_memory)
@@ -73,6 +79,7 @@ class Orchestrator:
         self.prompt_builder = PromptBuilder(
             memory_provider=self.memory_provider,
             max_skill_tokens=skill_prompt_max_tokens,
+            skill_selector=self.skill_selector,
         )
         self.tool_loop = ToolLoop(
             client=self.client,
@@ -83,31 +90,43 @@ class Orchestrator:
             memory_provider=self.memory_provider,
         )
 
-        # System prompt - tells Claude what it is and how to use skills
-        self.system_prompt = self.prompt_builder.build(
+        # Startup context (date/time/weather) stored separately so
+        # per-request prompts can append it after semantic skill selection.
+        self._startup_context: str = ""
+
+        # Static prompt for internal calls (greet, close_session) that
+        # have no user_message to drive semantic selection.
+        self.system_prompt = self._build_system_prompt()
+
+        logger.info(
+            "Orchestrator ready: model=%s, skills=%d, selector=%s",
+            self.model,
+            len(self.skills),
+            "active" if self.skill_selector.available else "unavailable",
+        )
+
+    def _build_system_prompt(self, user_message: str | None = None) -> str:
+        """Build the system prompt, optionally scoped to a user message."""
+        prompt = self.prompt_builder.build(
             skills=self.skills,
             skipped_skills=self.skill_loader.skipped_skills,
             invalid_skills=self.skill_loader.invalid_skills,
+            user_message=user_message,
         )
-
-        logger.info(
-            "Orchestrator ready: model=%s, skills=%d",
-            self.model,
-            len(self.skills),
-        )
+        if self._startup_context:
+            prompt += f"\n--- Current Context ---\n{self._startup_context}\n"
+        return prompt
 
     def process_message(self, user_message: str) -> str:
         """Process a user message through Claude with tool support."""
-        return self.tool_loop.run(user_message=user_message, system_prompt=self.system_prompt)
+        system_prompt = self._build_system_prompt(user_message=user_message)
+        return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
 
     def reload_skills(self):
         """Re-scan skill directories and rebuild the system prompt with any new skills."""
         self.skills = self.skill_loader.load_all()
-        self.system_prompt = self.prompt_builder.build(
-            skills=self.skills,
-            skipped_skills=self.skill_loader.skipped_skills,
-            invalid_skills=self.skill_loader.invalid_skills,
-        )
+        self.skill_selector.index(self.skills)
+        self.system_prompt = self._build_system_prompt()
         logger.info("Skills reloaded: %d skills active", len(self.skills))
 
     def greet(self) -> str:
@@ -124,7 +143,8 @@ class Orchestrator:
     def inject_startup_context(self, context: str) -> None:
         """Append date/time/weather context to the system prompt before the first turn."""
         if context.strip():
-            self.system_prompt += f"\n--- Current Context ---\n{context}\n"
+            self._startup_context = context
+            self.system_prompt = self._build_system_prompt()
 
     def close_session(self) -> str:
         """

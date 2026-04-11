@@ -226,6 +226,12 @@ def main():
         default=None,
         help="Additional skills directory to scan",
     )
+    parser.add_argument(
+        "--skill-select",
+        type=str,
+        metavar="QUERY",
+        help="Test semantic skill selection for a query without making an API call",
+    )
     args = parser.parse_args()
 
     # Validate API key
@@ -255,10 +261,23 @@ def main():
         memory_max_tokens=int(os.getenv("MEMORY_MAX_TOKENS", "2000")),
         memory_recall_max_tokens=int(os.getenv("MEMORY_RECALL_MAX_TOKENS", "600")),
         skill_prompt_max_tokens=int(os.getenv("SKILL_PROMPT_MAX_TOKENS", "4000")),
+        skill_select_top_k=int(os.getenv("SKILL_SELECT_TOP_K", "2")),
     )
 
     # Inject orchestrator reference for native skills that need to reload
     orchestrator.container_manager._orchestrator = orchestrator
+
+    if hasattr(args, "skill_select") and args.skill_select:
+        query = args.skill_select
+        selected = orchestrator.skill_selector.select(query)
+        always_full = orchestrator.prompt_builder.ALWAYS_FULL_SKILLS
+        all_skills = set(orchestrator.skills.keys())
+        compact = all_skills - selected - always_full
+        print(f"\nQuery: {query!r}")
+        print(f"Selected for full instructions: {sorted(selected)}")
+        print(f"Always-full skills: {sorted(always_full)}")
+        print(f"Compact one-liners: {sorted(compact)}")
+        sys.exit(0)
 
     # Run in requested mode
     if args.list:
