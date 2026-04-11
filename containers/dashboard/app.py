@@ -10,6 +10,7 @@ Routes:
 
 import os
 import json
+import re
 import time
 import threading
 
@@ -50,11 +51,56 @@ DEFAULT_GDELT_QUERIES = [
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _extract_rss_image(entry) -> str:
+    """Extract the best available image URL from an RSS/Atom entry."""
+    if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
+        return entry.media_thumbnail[0].get("url", "")
+    if hasattr(entry, "media_content") and entry.media_content:
+        url = entry.media_content[0].get("url", "")
+        if url:
+            return url
+    if hasattr(entry, "enclosures") and entry.enclosures:
+        for enc in entry.enclosures:
+            if enc.get("type", "").startswith("image/"):
+                return enc.get("href", "")
+    # Fall back to first <img> in summary/content
+    for field in ("summary", "content"):
+        body = ""
+        if field == "content" and hasattr(entry, "content") and entry.content:
+            body = entry.content[0].get("value", "")
+        else:
+            body = entry.get(field, "") or ""
+        m = re.search(r'<img[^>]+src=["\']((https?://)[^"\']+)["\']', body)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _weathercode_icon(code: int) -> str:
+    if code == 0:               return "☀️"
+    if code in (1, 2):          return "🌤️"
+    if code == 3:               return "☁️"
+    if code in (45, 48):        return "🌫️"
+    if code in (51, 53, 55):    return "🌦️"
+    if code in (56, 57):        return "🌨️"
+    if code in (61, 63, 65):    return "🌧️"
+    if code in (66, 67):        return "🌨️"
+    if code in (71, 73, 75, 77): return "❄️"
+    if code in (80, 81, 82):    return "🌦️"
+    if code in (85, 86):        return "❄️"
+    if code in (95, 96, 99):    return "⛈️"
+    return "🌡️"
+
+
+# ---------------------------------------------------------------------------
 # Data fetchers
 # ---------------------------------------------------------------------------
 
 def fetch_rss(feeds: list) -> list:
-    """Fetch headlines from RSS/Atom feeds."""
+    """Fetch headlines + images from RSS/Atom feeds."""
     items = []
     for feed_url in feeds:
         try:
@@ -63,14 +109,18 @@ def fetch_rss(feeds: list) -> list:
             for entry in feed.entries[:3]:
                 title = entry.get("title", "").strip()
                 if title:
-                    items.append({"source": source, "text": title})
+                    items.append({
+                        "source": source,
+                        "text": title,
+                        "image_url": _extract_rss_image(entry),
+                    })
         except Exception:
             pass
     return items
 
 
 def fetch_gdelt(queries: list) -> list:
-    """Fetch headlines from GDELT v2 Doc API."""
+    """Fetch headlines + social images from GDELT v2 Doc API."""
     items = []
     seen = set()
     for query in queries:
@@ -84,9 +134,10 @@ def fetch_gdelt(queries: list) -> list:
             for article in resp.json().get("articles", []):
                 title = article.get("title", "").strip()
                 domain = article.get("domain", "")
+                image_url = article.get("socialimage", "")
                 if title and title not in seen:
                     seen.add(title)
-                    items.append({"source": domain, "text": title})
+                    items.append({"source": domain, "text": title, "image_url": image_url})
         except Exception:
             pass
     return items
@@ -101,14 +152,13 @@ def fetch_news(rss_feeds: list, gdelt_queries: list) -> list:
         if key not in seen:
             seen.add(key)
             items.append(item)
-    return items[:20]
+    return items[:24]
 
 
 def fetch_weather() -> dict:
     """Fetch current weather from open-meteo (free, no API key)."""
     location = os.environ.get("WEATHER_LOCATION", "New York,NY")
     try:
-        # open-meteo geocoding doesn't understand "City,State" — use city name only
         city = location.split(",")[0].strip()
         geo_resp = requests.get(
             "https://geocoding-api.open-meteo.com/v1/search",
@@ -143,11 +193,13 @@ def fetch_weather() -> dict:
         daily = data.get("daily", {})
         mins = daily.get("temperature_2m_min", [])
         maxs = daily.get("temperature_2m_max", [])
+        code = int(current.get("weathercode", 0))
 
         return {
-            "temp": f"{round(current.get('temperature_2m', 0))}°F",
-            "tonight_low": f"{round(mins[0])}°F" if mins else "N/A",
-            "tomorrow_high": f"{round(maxs[1])}°F" if len(maxs) > 1 else "N/A",
+            "temp": f"{round(current.get('temperature_2m', 0))}",
+            "icon": _weathercode_icon(code),
+            "tonight_low": f"{round(mins[0])}" if mins else "N/A",
+            "tomorrow_high": f"{round(maxs[1])}" if len(maxs) > 1 else "N/A",
             "location": place.get("name", location),
         }
     except Exception as exc:
@@ -157,7 +209,7 @@ def fetch_weather() -> dict:
 def fetch_stocks(tickers: list) -> list:
     """Fetch stock price and daily change via yfinance."""
     if not YFINANCE_AVAILABLE:
-        return [{"ticker": t, "price": "N/A", "change": "N/A", "positive": False} for t in tickers]
+        return [{"ticker": t, "price": "N/A", "change": "N/A", "pct": 0, "positive": False} for t in tickers]
     results = []
     for ticker in tickers:
         try:
@@ -169,10 +221,11 @@ def fetch_stocks(tickers: list) -> list:
                 "ticker": ticker,
                 "price": f"${price:.2f}",
                 "change": f"{pct:+.1f}%",
+                "pct": round(pct, 1),
                 "positive": pct >= 0,
             })
         except Exception:
-            results.append({"ticker": ticker, "price": "N/A", "change": "N/A", "positive": False})
+            results.append({"ticker": ticker, "price": "N/A", "change": "N/A", "pct": 0, "positive": False})
     return results
 
 

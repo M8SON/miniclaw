@@ -4,185 +4,669 @@
 <meta charset="UTF-8">
 <title>MiniClaw</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
+{% set has_news = 'news' in panels %}
+{% set has_sidebar = 'weather' in panels or 'stocks' in panels or 'music' in panels %}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg:        #06090f;
+  --surface:   #0d1117;
+  --glass:     rgba(255,255,255,0.04);
+  --glass-md:  rgba(255,255,255,0.07);
+  --border:    rgba(255,255,255,0.07);
+  --border-md: rgba(255,255,255,0.12);
+  --text:      #e2e8f0;
+  --muted:     #475569;
+  --subtle:    #94a3b8;
+  --blue:      #3b82f6;
+  --green:     #22c55e;
+  --red:       #ef4444;
+  --gold:      #f59e0b;
+}
+
 body {
-  background: #0d1117;
-  color: #cdd9e5;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   height: 100vh;
   overflow: hidden;
-}
-.dashboard {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  height: 100vh;
-  gap: 12px;
-  padding: 16px;
+  grid-template-rows: 44px 1fr 36px;
+  gap: 0;
 }
-.main-panel {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 20px;
-  overflow-y: auto;
-}
-.sidebar {
+
+/* ── Header ──────────────────────────────────────────── */
+header {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(6,9,15,0.95);
+  backdrop-filter: blur(20px);
+  z-index: 10;
 }
-.widget {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 16px;
-  flex: 1;
-  overflow: hidden;
-}
-.panel-header {
+
+.brand {
   font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: var(--blue);
+  text-transform: uppercase;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.live-dot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--red);
+  text-transform: uppercase;
+}
+
+.live-dot::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.clock {
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--subtle);
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Main layout ─────────────────────────────────────── */
+main {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+  {% if has_news and has_sidebar %}
+  grid-template-columns: 2fr 1fr;
+  {% else %}
+  grid-template-columns: 1fr;
+  {% endif %}
+}
+
+/* ── News panel ──────────────────────────────────────── */
+.news-panel {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.news-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Featured card spans top row */
+.news-card {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: default;
+  background: var(--surface);
+}
+
+.news-card.featured {
+  grid-column: 1 / -1;
+}
+
+.card-img {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  transition: transform 8s ease;
+}
+
+.news-card:hover .card-img {
+  transform: scale(1.03);
+}
+
+.card-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(0,0,0,0.92) 0%,
+    rgba(0,0,0,0.5) 40%,
+    rgba(0,0,0,0.15) 70%,
+    transparent 100%
+  );
+}
+
+.card-content {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 14px;
+}
+
+.source-tag {
+  display: inline-block;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #30363d;
+  color: rgba(255,255,255,0.55);
+  margin-bottom: 6px;
 }
-.news-header  { color: #58a6ff; }
-.weather-header { color: #e3b341; }
-.stocks-header { color: #3fb950; }
-.music-header  { color: #f78166; }
-.news-item {
-  padding: 10px 0;
-  border-bottom: 1px solid #21262d;
-  font-size: 14px;
-  line-height: 1.5;
-}
-.news-item:last-child { border-bottom: none; }
-.news-source { font-size: 11px; color: #8b949e; margin-bottom: 3px; }
-.weather-temp { font-size: 36px; font-weight: 300; margin-bottom: 6px; }
-.weather-detail { font-size: 12px; color: #8b949e; line-height: 2; }
-.stock-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 7px 0;
+
+.featured .source-tag { font-size: 10px; margin-bottom: 8px; }
+
+.card-headline {
   font-size: 13px;
-  border-bottom: 1px solid #21262d;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #fff;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.stock-row:last-child { border-bottom: none; }
-.stock-ticker { font-weight: 600; }
-.pos { color: #3fb950; }
-.neg { color: #f85149; }
-.music-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
-.muted { color: #8b949e; font-size: 13px; }
-.unavailable { color: #8b949e; font-size: 12px; font-style: italic; }
-.clock {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
+
+.featured .card-headline {
+  font-size: 18px;
+  font-weight: 700;
+  -webkit-line-clamp: 2;
+}
+
+/* Gradient fallbacks per position */
+.grad-0 { background: linear-gradient(135deg, #0f1f3d 0%, #1a3a6b 100%); }
+.grad-1 { background: linear-gradient(135deg, #1a0a00 0%, #7c2d12 100%); }
+.grad-2 { background: linear-gradient(135deg, #001a0e 0%, #064e3b 100%); }
+.grad-3 { background: linear-gradient(135deg, #1a0a20 0%, #4c1d95 100%); }
+.grad-4 { background: linear-gradient(135deg, #1a1000 0%, #78350f 100%); }
+.grad-5 { background: linear-gradient(135deg, #001a1a 0%, #134e4a 100%); }
+
+/* Top accent strip on each card */
+.news-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--blue), transparent);
+  opacity: 0.5;
+}
+
+.news-card.featured::after {
+  opacity: 0.8;
+  height: 3px;
+}
+
+/* No news state */
+.no-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.widget {
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+}
+
+.widget::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-md), transparent);
+}
+
+.widget-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* Weather */
+.weather-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.weather-icon { font-size: 42px; line-height: 1; }
+
+.weather-temp-block { display: flex; flex-direction: column; }
+
+.weather-temp {
+  font-size: 40px;
+  font-weight: 200;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.weather-unit {
+  font-size: 18px;
+  color: var(--subtle);
+  vertical-align: super;
+}
+
+.weather-location {
+  font-size: 11px;
+  color: var(--subtle);
+  margin-top: 2px;
+  letter-spacing: 0.03em;
+}
+
+.weather-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.weather-detail-item {
+  background: var(--glass-md);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.detail-label {
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+
+.detail-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Stocks */
+.stock-list { display: flex; flex-direction: column; gap: 5px; }
+
+.stock-row {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--glass-md);
   font-size: 12px;
-  color: #484f58;
+}
+
+.stock-ticker {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--text);
+}
+
+.stock-bar-wrap {
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stock-bar {
+  height: 100%;
+  border-radius: 2px;
+  min-width: 2px;
+}
+
+.stock-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.stock-price {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-change {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+
+/* Music */
+.music-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.music-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+}
+
+.music-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--blue);
+}
+
+.music-bar.playing {
+  animation: musicBar 0.8s ease-in-out infinite alternate;
+}
+
+.music-bar:nth-child(1) { height: 40%; animation-delay: 0s; }
+.music-bar:nth-child(2) { height: 80%; animation-delay: 0.15s; }
+.music-bar:nth-child(3) { height: 60%; animation-delay: 0.3s; }
+.music-bar:nth-child(4) { height: 100%; animation-delay: 0.1s; }
+.music-bar:nth-child(5) { height: 50%; animation-delay: 0.25s; }
+
+@keyframes musicBar {
+  from { transform: scaleY(0.4); opacity: 0.6; }
+  to   { transform: scaleY(1);   opacity: 1; }
+}
+
+.music-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.music-idle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Ticker ──────────────────────────────────────────── */
+.ticker-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+  height: 36px;
+}
+
+.ticker-label {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: #fff;
+  background: var(--red);
+  padding: 0 12px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.ticker-track {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, transparent 0%, black 3%, black 97%, transparent 100%);
+}
+
+.ticker-inner {
+  display: inline-block;
+  padding-left: 100%;
+  animation: scroll-ticker 60s linear infinite;
+  font-size: 12px;
+  color: var(--subtle);
+}
+
+.ticker-inner:hover { animation-play-state: paused; }
+
+@keyframes scroll-ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+
+.ticker-sep {
+  margin: 0 20px;
+  color: var(--muted);
+  opacity: 0.5;
 }
 </style>
 </head>
 <body>
 
-<div class="clock" id="clock"></div>
+<header>
+  <span class="brand">MiniClaw</span>
+  <div class="header-right">
+    <span class="live-dot">Live</span>
+    <span class="clock" id="clock"></span>
+  </div>
+</header>
 
-<div class="dashboard">
+<main>
 
-  {# ── Main panel: news takes focus, or first panel if no news ── #}
+  {# ── News panel ── #}
   {% if 'news' in panels %}
-  <div class="main-panel">
-    <div class="panel-header news-header">News &amp; OSINT</div>
+  <div class="news-panel">
     {% if data.get('news') %}
-      {% for item in data['news'] %}
-      <div class="news-item">
-        <div class="news-source">{{ item.source }}</div>
-        {{ item.text }}
+    <div class="news-cards">
+
+      {# Featured card — first item, spans full width #}
+      {% set hero = data['news'][0] %}
+      <div class="news-card featured grad-0">
+        {% if hero.image_url %}
+        <div class="card-img" style="background-image:url('{{ hero.image_url }}')"></div>
+        {% endif %}
+        <div class="card-gradient"></div>
+        <div class="card-content">
+          <div class="source-tag">{{ hero.source }}</div>
+          <div class="card-headline">{{ hero.text }}</div>
+        </div>
+      </div>
+
+      {# Secondary cards — items 1–5 #}
+      {% for item in data['news'][1:6] %}
+      {% set g = loop.index0 % 6 %}
+      <div class="news-card grad-{{ g }}">
+        {% if item.image_url %}
+        <div class="card-img" style="background-image:url('{{ item.image_url }}')"></div>
+        {% endif %}
+        <div class="card-gradient"></div>
+        <div class="card-content">
+          <div class="source-tag">{{ item.source }}</div>
+          <div class="card-headline">{{ item.text }}</div>
+        </div>
       </div>
       {% endfor %}
+
+    </div>
     {% else %}
-      <div class="unavailable">Feed unavailable</div>
+    <div class="no-content">No news available</div>
     {% endif %}
-  </div>
-  {% elif panels %}
-  <div class="main-panel">
-    <div class="panel-header">{{ panels[0]|upper }}</div>
-    <div class="unavailable">No content</div>
-  </div>
-  {% else %}
-  <div class="main-panel">
-    <div class="panel-header">Dashboard</div>
-    <div class="unavailable">No panels selected</div>
   </div>
   {% endif %}
 
-  {# ── Sidebar widgets (only render column if at least one sidebar panel is active) ── #}
+  {# ── Sidebar ── #}
   {% if 'weather' in panels or 'stocks' in panels or 'music' in panels %}
   <div class="sidebar">
 
     {% if 'weather' in panels %}
     <div class="widget">
-      <div class="panel-header weather-header">Weather</div>
+      <div class="widget-label">Weather</div>
       {% set w = data.get('weather', {}) %}
       {% if w and not w.get('error') %}
-        <div class="weather-temp">{{ w.temp }}</div>
-        <div class="weather-detail">
-          Tonight low: {{ w.tonight_low }}<br>
-          Tomorrow high: {{ w.tomorrow_high }}<br>
-          {{ w.location }}
+        <div class="weather-main">
+          <div class="weather-icon">{{ w.icon }}</div>
+          <div class="weather-temp-block">
+            <div class="weather-temp">{{ w.temp }}<span class="weather-unit">°F</span></div>
+            <div class="weather-location">{{ w.location }}</div>
+          </div>
+        </div>
+        <div class="weather-details">
+          <div class="weather-detail-item">
+            <div class="detail-label">Tonight Low</div>
+            <div class="detail-value">{{ w.tonight_low }}°</div>
+          </div>
+          <div class="weather-detail-item">
+            <div class="detail-label">Tomorrow High</div>
+            <div class="detail-value">{{ w.tomorrow_high }}°</div>
+          </div>
         </div>
       {% else %}
-        <div class="unavailable">{{ w.get('error', 'Unavailable') }}</div>
+        <div class="music-idle">{{ w.get('error', 'Unavailable') }}</div>
       {% endif %}
     </div>
     {% endif %}
 
     {% if 'stocks' in panels %}
     <div class="widget">
-      <div class="panel-header stocks-header">Stocks</div>
+      <div class="widget-label">Markets</div>
       {% if data.get('stocks') %}
+      <div class="stock-list">
         {% for s in data['stocks'] %}
+        {% set bar_pct = [s.pct | abs, 5] | min / 5 * 100 %}
         <div class="stock-row">
           <span class="stock-ticker">{{ s.ticker }}</span>
-          <span>{{ s.price }}</span>
-          <span class="{{ 'pos' if s.positive else 'neg' }}">{{ s.change }}</span>
+          <div class="stock-bar-wrap">
+            <div class="stock-bar {{ 'pos' if s.positive else 'neg' }}"
+                 style="width:{{ bar_pct }}%; background:{{ '#22c55e' if s.positive else '#ef4444' }}"></div>
+          </div>
+          <div class="stock-right">
+            <span class="stock-price">{{ s.price }}</span>
+            <span class="stock-change {{ 'pos' if s.positive else 'neg' }}">{{ s.change }}</span>
+          </div>
         </div>
         {% endfor %}
+      </div>
       {% else %}
-        <div class="unavailable">Unavailable</div>
+        <div class="music-idle">Unavailable</div>
       {% endif %}
     </div>
     {% endif %}
 
     {% if 'music' in panels %}
     <div class="widget">
-      <div class="panel-header music-header">Now Playing</div>
+      <div class="widget-label">Now Playing</div>
       {% set m = data.get('music', {}) %}
       {% if m.get('status') == 'playing' %}
-        <div class="music-title">{{ m.title }}</div>
+        <div class="music-status">
+          <div class="music-bars">
+            {% for _ in range(5) %}
+            <div class="music-bar playing"></div>
+            {% endfor %}
+          </div>
+          <div class="music-title">{{ m.title }}</div>
+        </div>
       {% else %}
-        <div class="muted">Nothing playing</div>
+        <div class="music-status">
+          <div class="music-bars">
+            {% for _ in range(5) %}
+            <div class="music-bar" style="opacity:0.2"></div>
+            {% endfor %}
+          </div>
+          <div class="music-idle">Nothing playing</div>
+        </div>
       {% endif %}
     </div>
     {% endif %}
 
   </div>
   {% endif %}
+
+</main>
+
+{# ── Scrolling ticker (items 6+) ── #}
+{% if data.get('news') and data['news']|length > 6 %}
+<div class="ticker-bar">
+  <span class="ticker-label">LIVE</span>
+  <div class="ticker-track">
+    <span class="ticker-inner">
+      {% for item in data['news'][6:] %}
+      <span class="ticker-sep">◆</span>&nbsp;{{ item.source }}&nbsp;&mdash;&nbsp;{{ item.text }}&nbsp;&nbsp;
+      {% endfor %}
+    </span>
+  </div>
 </div>
+{% else %}
+<div class="ticker-bar">
+  <span class="ticker-label">LIVE</span>
+  <div class="ticker-track">
+    <span class="ticker-inner" style="color:var(--muted); padding-left:20px">MiniClaw Dashboard</span>
+  </div>
+</div>
+{% endif %}
 
 <script>
-// Live clock
+// Clock
 function tick() {
+  const now = new Date();
   document.getElementById('clock').textContent =
-    new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    now.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'}) + '  ' +
+    now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 }
 tick();
 setInterval(tick, 1000);
 
-// Poll for panel-change reload signal
+// Panel reload polling
 setInterval(() => {
   fetch('/poll')
     .then(r => r.json())
