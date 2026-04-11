@@ -44,7 +44,7 @@ def search_and_play(query: str) -> str:
     stream_url = lines[1]
 
     subprocess.Popen(
-        ["mpv", "--no-video", "--really-quiet", stream_url],
+        ["mpv", "--no-video", "--really-quiet", "--audio-device=pulse", stream_url],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

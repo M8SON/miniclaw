@@ -607,25 +607,18 @@ main {
     <div class="widget">
       <div class="widget-label">Now Playing</div>
       {% set m = data.get('music', {}) %}
-      {% if m.get('status') == 'playing' %}
-        <div class="music-status">
-          <div class="music-bars">
-            {% for _ in range(5) %}
-            <div class="music-bar playing"></div>
-            {% endfor %}
-          </div>
-          <div class="music-title">{{ m.title }}</div>
+      <div class="music-status">
+        <div class="music-bars">
+          {% for _ in range(5) %}
+          <div class="music-bar {% if m.get('status') == 'playing' %}playing{% endif %}"></div>
+          {% endfor %}
         </div>
-      {% else %}
-        <div class="music-status">
-          <div class="music-bars">
-            {% for _ in range(5) %}
-            <div class="music-bar" style="opacity:0.2"></div>
-            {% endfor %}
-          </div>
-          <div class="music-idle">Nothing playing</div>
-        </div>
-      {% endif %}
+        {% if m.get('status') == 'playing' %}
+        <div id="music-title" class="music-title">{{ m.title }}</div>
+        {% else %}
+        <div id="music-title" class="music-idle">Nothing playing</div>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
 
@@ -673,6 +666,27 @@ setInterval(() => {
     .then(d => { if (d.reload) window.location.reload(); })
     .catch(() => {});
 }, 2000);
+
+// Live music status polling (updates widget without full reload)
+{% if 'music' in panels %}
+function updateMusic(m) {
+  const title = document.getElementById('music-title');
+  const bars  = document.querySelectorAll('.music-bar');
+  if (!title) return;
+  if (m.status === 'playing') {
+    title.textContent = m.title || 'Unknown';
+    title.className = 'music-title';
+    bars.forEach(b => b.classList.add('playing'));
+  } else {
+    title.textContent = 'Nothing playing';
+    title.className = 'music-idle';
+    bars.forEach(b => b.classList.remove('playing'));
+  }
+}
+setInterval(() => {
+  fetch('/music').then(r => r.json()).then(updateMusic).catch(() => {});
+}, 5000);
+{% endif %}
 </script>
 
 </body>

@@ -252,6 +252,11 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/music")
+def music_status():
+    return jsonify(fetch_music())
+
+
 @app.route("/poll")
 def poll():
     with _state_lock:
