@@ -7,54 +7,34 @@ description: Show a visual dashboard on the connected monitor, or close it. Disp
 
 ## When to use
 
-Use this skill when the user asks to:
-- See a dashboard, display, or screen ("show me the dashboard", "pull up the display")
-- View specific feeds ("show me the news", "throw up stocks and weather")
-- Update or change the current dashboard ("switch to conflict news", "update my news feed")
-- Close or dismiss the dashboard ("close the display", "turn off the screen")
+- "show me the dashboard", "pull up the display", "open the screen"
+- "show me the news / weather / stocks / what's playing"
+- "switch to conflict news", "update my news feed", "show me Middle East news"
+- "close the display", "turn off the screen"
 
-Do NOT use this skill to play audio — use the soundcloud/audio skill for that.
+Do NOT use this skill to play audio — use the soundcloud skill.
 
-## Before opening — check memory first
+## Before calling
 
-Before asking the user anything, check remembered context for:
-- **Location** — look for a saved city, location, or hometown. If found, use it silently.
-- **News preferences** — look for saved dashboard preferences (e.g. "likes local + conflict news"). If found, use them silently.
+Check memory for location and news preferences. Use them silently if found. Ask only if missing.
 
-Only ask if the information is not in memory.
-
-## Gathering preferences
-
-### Location
-If location is not in memory and the user's request involves weather or local news, ask:
-> "What city are you in? I'll remember it for next time."
-
-After they answer, use `save_memory` to store it (topic: "location", e.g. "Mason is in Burlington, Vermont").
-
-### News preferences
-If news is in the requested panels and preferences are not in memory and the user's request doesn't already specify what they want (e.g. "show me conflict news" is already clear), ask:
-> "What kind of news do you want on the dashboard? I can show local news for your city, world news, OSINT and conflict monitoring, or a mix."
-
-After they answer, use `save_memory` to store it (topic: "dashboard news preferences").
-
-If the user says "update my news feed" or "change my news preferences", ask the question above regardless of what's in memory, then update the saved memory.
+- **Location missing + weather or local news requested:** ask what city they're in, then save with `save_memory` (topic: "location").
+- **News preferences missing + not specified in request:** ask what kind of news (local, world, OSINT/conflict, or a mix), then save with `save_memory` (topic: "dashboard news preferences"). Skip if request already specifies topic.
+- If user says "update my news feed", ask regardless of memory.
 
 ## Building the news config
 
-Based on location and preferences, set:
+**`news_sources`** — RSS feed groups:
+- `"osint"` — Bellingcat, The War Zone
+- `"world"` — Al Jazeera
+- `"local_vt"` — VTDigger, Seven Days (Burlington/Vermont only)
 
-**`news_sources`** — which RSS feed groups to include:
-- `"osint"` — Bellingcat, The War Zone (investigative + defense)
-- `"world"` — Al Jazeera (international)
-- `"local_vt"` — VTDigger, Seven Days (Vermont/Burlington only)
+**`gdelt_queries`** — free dynamic news queries. Always include a location query when city is known. Add topic queries from preferences or request.
 
-**`gdelt_queries`** — GDELT search queries (free, no API key, great for local + topic-based news):
-- For local news: use the user's city + state, e.g. `"Burlington Vermont"`
-- For conflict/geopolitics: `"conflict military geopolitics"`
-- For climate/environment: `"climate environment"`
-- For any topic the user requests: build a natural query string for it
-
-Always include a location-based GDELT query when you know the user's city. Add topic queries based on preferences.
+- Burlington, VT → `"Burlington Vermont"`
+- Conflict/geopolitics → `"conflict military geopolitics"`
+- Climate → `"climate environment"`
+- User specifies a topic → build a precise query string for it
 
 ## Inputs
 
@@ -68,20 +48,17 @@ properties:
     type: array
     items:
       enum: [news, weather, stocks, music]
-    description: which panels to display
   location:
     type: string
-    description: city name for weather and local GDELT query (e.g. "Burlington")
+    description: city name for weather and local GDELT query
   news_sources:
     type: array
     items:
       enum: [osint, world, local_vt]
-    description: which RSS feed groups to include in the news panel
   gdelt_queries:
     type: array
     items:
       type: string
-    description: GDELT search query strings — build from user's location + interests
   timeout_minutes:
     type: integer
     default: 10
@@ -91,32 +68,26 @@ required:
 
 ## Panel selection
 
-Infer panels from the user's request:
-- "news" / "what's happening" / "OSINT" / "headlines" → `["news"]`
-- "weather" → `["weather"]`
-- "stocks" / "market" → `["stocks"]`
-- "music" / "what's playing" → `["music"]`
-- "dashboard" / "everything" / no specific panel → `["news", "weather", "stocks", "music"]`
+- news / headlines / what's happening → `["news"]`
+- weather → `["weather"]`
+- stocks / market → `["stocks"]`
+- music / what's playing → `["music"]`
+- dashboard / everything / unspecified → `["news", "weather", "stocks", "music"]`
 - Combinations: "news and weather" → `["news", "weather"]`
 
 ## Live topic updates
 
-If the dashboard is already open, calling this skill with `action: "open"` and new parameters will update the content in place — no need to close and reopen.
+If the dashboard is open, `action: "open"` with new parameters updates content in place.
 
-Use this whenever the user asks to change what they're looking at:
-- "show me news on the new Toyota" → `gdelt_queries: ["Toyota new model 2026"]`
-- "show me what's happening in the Middle East" → `gdelt_queries: ["Middle East conflict news"]`
-- "switch to climate news" → `gdelt_queries: ["climate environment"]`
-- "show me local news" → `gdelt_queries: ["Burlington Vermont"]`, `news_sources: ["local_vt"]`
-- "show me everything" → restore default queries + `news_sources: ["osint", "world", "local_vt"]`
+- "show me Middle East news" → `gdelt_queries: ["Middle East conflict news"]` (no `news_sources`)
+- "switch to local news" → `gdelt_queries: ["Burlington Vermont"]`, `news_sources: ["local_vt"]`
+- "show me Toyota news" → `gdelt_queries: ["Toyota new model 2026"]` (no `news_sources`)
 
-When sending a topic-specific GDELT update (e.g. Toyota, Middle East), do NOT include `news_sources` — this clears RSS feeds so only on-topic results appear. Include `news_sources` only when the user wants a named feed category.
-
-Build GDELT queries to match the topic precisely. Multiple queries can be combined — each fetches up to 5 articles. Be specific: "Toyota Camry 2026 hybrid" is better than "Toyota news".
+**Rule:** Include `news_sources` only when the user wants a named feed category. For topic-specific updates, omit `news_sources` — this clears RSS so only on-topic results appear. Be specific with queries: "Toyota Camry 2026 hybrid" beats "Toyota news".
 
 ## How to respond
 
-- After opening: confirm what's on screen. Example: "Dashboard is up with local Burlington news, conflict feeds, and weather."
-- After a live update: "Switched to Middle East news." or "Showing Toyota headlines now."
-- After closing: "Display closed."
-- Keep responses short — the user is looking at the screen, not listening for detail.
+- Opening: "Dashboard is up with [content summary]."
+- Live update: "Switched to [topic]."
+- Closing: "Display closed."
+Keep responses short — the user is looking at the screen, not listening for detail.
