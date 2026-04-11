@@ -49,7 +49,7 @@ class ContainerManager:
             "set_env_var": self._execute_set_env_var,
             "save_memory": self._execute_save_memory,
             "dashboard": self._execute_dashboard,
-            "soundcloud": self._execute_soundcloud,
+            "soundcloud_play": self._execute_soundcloud,
         }
         self._verify_docker()
 
