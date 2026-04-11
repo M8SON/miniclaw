@@ -83,7 +83,7 @@ If the dashboard is open, `action: "open"` with new parameters updates content i
 - "switch to local news" → `gdelt_queries: ["Burlington Vermont"]`, `news_sources: ["local_vt"]`
 - "show me Toyota news" → `gdelt_queries: ["Toyota new model 2026"]` (no `news_sources`)
 
-**Rule:** Include `news_sources` only when the user wants a named feed category. For topic-specific updates, omit `news_sources` — this clears RSS so only on-topic results appear. Be specific with queries: "Toyota Camry 2026 hybrid" beats "Toyota news".
+**Rule:** Include `news_sources` only when the user wants a named feed category. For topic-specific updates, omit `news_sources` — this clears RSS so only on-topic results appear. If the user wants both named feeds AND a custom topic, include both. Be specific with queries: "Toyota Camry 2026 hybrid" beats "Toyota news".
 
 ## How to respond
 
