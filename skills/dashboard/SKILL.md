@@ -108,7 +108,9 @@ Use this whenever the user asks to change what they're looking at:
 - "show me what's happening in the Middle East" → `gdelt_queries: ["Middle East conflict news"]`
 - "switch to climate news" → `gdelt_queries: ["climate environment"]`
 - "show me local news" → `gdelt_queries: ["Burlington Vermont"]`, `news_sources: ["local_vt"]`
-- "show me everything" → restore default queries + all sources
+- "show me everything" → restore default queries + `news_sources: ["osint", "world", "local_vt"]`
+
+When sending a topic-specific GDELT update (e.g. Toyota, Middle East), do NOT include `news_sources` — this clears RSS feeds so only on-topic results appear. Include `news_sources` only when the user wants a named feed category.
 
 Build GDELT queries to match the topic precisely. Multiple queries can be combined — each fetches up to 5 articles. Be specific: "Toyota Camry 2026 hybrid" is better than "Toyota news".
 

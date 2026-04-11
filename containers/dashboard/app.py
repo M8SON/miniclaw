@@ -283,13 +283,16 @@ def refresh():
             _state["panels"] = [p.strip() for p in panels_str.split(",") if p.strip()]
         if gdelt_str:
             _state["gdelt_queries"] = [q.strip() for q in gdelt_str.split("|") if q.strip()]
+            # Topic-specific update: clear RSS so only on-topic GDELT results show.
+            # RSS feeds are restored when news_sources is explicitly provided.
+            if not sources_str:
+                _state["rss_feeds"] = []
         if sources_str:
             sources = [s.strip() for s in sources_str.split(",") if s.strip()]
             feeds = []
             for src in sources:
                 feeds.extend(rss_source_map.get(src, []))
-            if feeds:
-                _state["rss_feeds"] = feeds
+            _state["rss_feeds"] = feeds
         _state["needs_refresh"] = True
 
     return jsonify({"status": "ok"})
