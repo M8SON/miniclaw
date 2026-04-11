@@ -37,9 +37,13 @@ class SkillSelector:
             from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
             self._ef = DefaultEmbeddingFunction()
             logger.info("SkillSelector: embedding function loaded")
-        except Exception as exc:
+        except (ImportError, ModuleNotFoundError) as exc:
             logger.warning(
-                "SkillSelector: unavailable, falling back to all-skills-full: %s", exc
+                "SkillSelector: chromadb embedding function not available, falling back to all-skills-full: %s", exc
+            )
+        except Exception as exc:
+            logger.error(
+                "SkillSelector: unexpected error loading embedding function, falling back to all-skills-full: %s", exc
             )
 
     @property
@@ -56,6 +60,9 @@ class SkillSelector:
         if self._ef is None:
             return
         self._skill_names = list(skills.keys())
+        if not self._skill_names:
+            self._embeddings = None
+            return
         texts = [f"{s.name}: {s.description}" for s in skills.values()]
         raw = self._ef(texts)
         self._embeddings = np.array(raw, dtype=np.float32)
@@ -63,7 +70,7 @@ class SkillSelector:
 
     def select(self, user_message: str) -> set[str]:
         """
-        Return skill names most relevant to user_message.
+        Return up to top_k skill names most relevant to user_message.
 
         Returns empty set when unavailable — PromptBuilder treats this
         as "expand all skills" (existing behaviour).
@@ -71,11 +78,15 @@ class SkillSelector:
         if not self.available:
             return set()
 
+        if not self._skill_names:
+            return set()
+
         query_raw = self._ef([user_message])
         query_emb = np.array(query_raw[0], dtype=np.float32)
         query_norm = np.linalg.norm(query_emb)
 
         if query_norm < 1e-8:
+            logger.warning("SkillSelector: query vector is near-zero, returning first %d skills", self.top_k)
             return set(self._skill_names[: self.top_k])
 
         norms = np.linalg.norm(self._embeddings, axis=1)

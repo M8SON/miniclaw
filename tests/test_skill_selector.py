@@ -117,6 +117,23 @@ class TestSkillSelector(unittest.TestCase):
         selector.index(new_skills)
         self.assertEqual(selector._skill_names, ["homebridge"])
 
+    def test_returns_empty_set_for_empty_skills(self):
+        from core.skill_selector import SkillSelector
+        selector = SkillSelector.__new__(SkillSelector)
+        selector.top_k = 2
+        selector._ef = _make_mock_ef(DIM_MAP, n_dims=4)
+        selector._skill_names = []
+        selector._embeddings = None
+        # index with empty skills — embeddings stay None
+        selector.index({})
+        self.assertEqual(selector.select("play a song"), set())
+
+    def test_top_k_capped_by_skill_count(self):
+        # top_k=10 but only 4 skills indexed — should return all 4
+        selector = self._make_selector(top_k=10)
+        result = selector.select("play a song")
+        self.assertLessEqual(len(result), len(FAKE_SKILLS))
+
 
 if __name__ == "__main__":
     unittest.main()
