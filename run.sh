@@ -127,9 +127,9 @@ install_system_deps() {
         fail "sudo not found — install Docker and espeak-ng manually"
     fi
 
-    echo "  Installing system packages (docker.io, espeak-ng)..."
+    echo "  Installing system packages (docker.io, espeak-ng, mpv)..."
     sudo apt-get update
-    sudo apt-get install -y docker.io espeak-ng
+    sudo apt-get install -y docker.io espeak-ng mpv
     sudo systemctl enable --now docker
     ensure_docker_group_membership
     ok "system dependencies installed"
@@ -182,6 +182,12 @@ if command -v espeak-ng &>/dev/null; then
     ok "espeak-ng"
 else
     warn "espeak-ng not found — TTS will fail. Install with: sudo apt install espeak-ng or ./run.sh --install-system-deps"
+fi
+
+if command -v mpv &>/dev/null; then
+    ok "mpv"
+else
+    warn "mpv not found — music playback will be unavailable. Install with: sudo apt install mpv or ./run.sh --install-system-deps"
 fi
 
 # ── Claude Code CLI (required for voice skill installation) ──────────────────

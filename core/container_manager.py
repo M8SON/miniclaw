@@ -43,11 +43,13 @@ class ContainerManager:
         self.docker_available = False
         self.docker_error = None
         self._dashboard_timer: threading.Timer | None = None
+        self._mpv_process: subprocess.Popen | None = None
         self._native_handlers = {
             "install_skill": self._execute_install_skill,
             "set_env_var": self._execute_set_env_var,
             "save_memory": self._execute_save_memory,
             "dashboard": self._execute_dashboard,
+            "soundcloud": self._execute_soundcloud,
         }
         self._verify_docker()
 
@@ -543,6 +545,79 @@ class ContainerManager:
         if action == "close":
             return self._close_dashboard()
         return f"Unknown dashboard action '{action}'. Use 'open' or 'close'."
+
+    def _execute_soundcloud(self, tool_input: dict) -> str:
+        """Play or stop music via yt-dlp + mpv on the host."""
+        import shutil
+        action = str(tool_input.get("action", "play")).strip().lower()
+
+        if action == "stop":
+            if self._mpv_process and self._mpv_process.poll() is None:
+                self._mpv_process.terminate()
+                self._mpv_process = None
+                now_playing = Path.home() / ".miniclaw" / "now_playing.json"
+                now_playing.unlink(missing_ok=True)
+                return "Stopped."
+            return "Nothing is playing."
+
+        query = str(tool_input.get("query", "")).strip()
+        if not query:
+            return "No search query provided."
+
+        if not shutil.which("yt-dlp"):
+            return "yt-dlp not found. Install with: pip install yt-dlp"
+        if not shutil.which("mpv"):
+            return "mpv not found. Install with: sudo apt install mpv"
+
+        # Stop any currently playing track
+        if self._mpv_process and self._mpv_process.poll() is None:
+            self._mpv_process.terminate()
+            self._mpv_process = None
+
+        try:
+            result = subprocess.run(
+                [
+                    "yt-dlp",
+                    "--get-title", "--get-url",
+                    "-f", "bestaudio",
+                    "--no-playlist",
+                    "--cache-dir", "/tmp/yt-dlp-cache",
+                    f"scsearch1:{query}",
+                ],
+                capture_output=True, text=True, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return f"Search timed out for '{query}'."
+        except FileNotFoundError:
+            return "yt-dlp not found on PATH."
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return f"No results found for '{query}' on SoundCloud."
+
+        lines = result.stdout.strip().splitlines()
+        if len(lines) < 2:
+            return f"Could not retrieve stream for '{query}'."
+
+        title, stream_url = lines[0], lines[1]
+
+        self._mpv_process = subprocess.Popen(
+            ["mpv", "--no-video", "--really-quiet", stream_url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Write now_playing for dashboard music widget
+        now_playing_path = Path.home() / ".miniclaw" / "now_playing.json"
+        try:
+            import time as _time
+            now_playing_path.write_text(
+                json.dumps({"title": title, "timestamp": _time.time()}),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+        return f"Now playing: {title}"
 
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""
