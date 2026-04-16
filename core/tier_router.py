@@ -102,8 +102,12 @@ class TierRouter:
 
         # 3. Skill prediction — if SkillSelector predicts a Claude-only skill, escalate
         if self._skill_selector and self._skill_selector.available:
-            predicted = self._skill_selector.select(text)
-            if predicted & self._claude_only:
+            try:
+                predicted = self._skill_selector.select(text)
+            except Exception:
+                logger.warning("TierRouter: skill_selector.select() raised — skipping prediction")
+                predicted = None
+            if predicted and predicted & self._claude_only:
                 logger.debug(
                     "TierRouter: predicted claude-only skill(s) %s → claude", predicted
                 )

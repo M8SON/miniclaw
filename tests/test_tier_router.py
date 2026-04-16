@@ -107,7 +107,7 @@ class TestEscalatePatterns(unittest.TestCase):
         router = _make_router()
         result = router.route("explain this")
         # Short — no escalate, goes to ollama
-        self.assertNotEqual(result.tier, "claude")
+        self.assertEqual(result.tier, "ollama")
 
 
 class TestSkillPrediction(unittest.TestCase):
@@ -142,6 +142,29 @@ class TestSkillPrediction(unittest.TestCase):
         router = _make_router(skill_selector=sel)
         result = router.route("some unknown request")
         self.assertEqual(result.tier, "ollama")
+
+    def test_selector_returning_none_defaults_to_ollama(self):
+        sel = MagicMock()
+        sel.available = True
+        sel.select.return_value = None
+        router = _make_router(claude_only={"install_skill"}, skill_selector=sel)
+        result = router.route("do something")
+        self.assertEqual(result.tier, "ollama")
+
+    def test_selector_raising_defaults_to_ollama(self):
+        sel = MagicMock()
+        sel.available = True
+        sel.select.side_effect = RuntimeError("model error")
+        router = _make_router(claude_only={"install_skill"}, skill_selector=sel)
+        result = router.route("do something")
+        self.assertEqual(result.tier, "ollama")
+
+    def test_escalate_pattern_skips_skill_selector(self):
+        sel = MagicMock()
+        sel.available = True
+        router = _make_router(claude_only={"install_skill"}, skill_selector=sel)
+        router.route("remember to buy milk")
+        sel.select.assert_not_called()
 
 
 if __name__ == "__main__":
