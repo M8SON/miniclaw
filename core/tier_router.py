@@ -94,7 +94,21 @@ class TierRouter:
                     args=dict(entry.get("args", {})),
                 )
 
-        # 2. Escalate patterns — checked in Task 3
-        # 3. Skill prediction — checked in Task 3
+        # 2. Escalate patterns — route to Claude immediately, skip Ollama latency
+        for pattern in self._escalate:
+            if pattern.search(text):
+                logger.debug("TierRouter: escalate pattern matched → claude")
+                return RouteResult(tier="claude")
 
+        # 3. Skill prediction — if SkillSelector predicts a Claude-only skill, escalate
+        if self._skill_selector and self._skill_selector.available:
+            predicted = self._skill_selector.select(text)
+            if predicted & self._claude_only:
+                logger.debug(
+                    "TierRouter: predicted claude-only skill(s) %s → claude", predicted
+                )
+                return RouteResult(tier="claude")
+
+        # 4. Default — Ollama handles it
+        logger.debug("TierRouter: no match → ollama")
         return RouteResult(tier="ollama")

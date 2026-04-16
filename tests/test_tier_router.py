@@ -81,5 +81,68 @@ class TestDispatchPatterns(unittest.TestCase):
         self.assertEqual(result.tier, "ollama")
 
 
+class TestEscalatePatterns(unittest.TestCase):
+
+    def test_install_skill_escalates_to_claude(self):
+        router = _make_router()
+        result = router.route("install a skill that checks my calendar")
+        self.assertEqual(result.tier, "claude")
+
+    def test_add_tool_escalates(self):
+        router = _make_router()
+        result = router.route("add a tool that does X")
+        self.assertEqual(result.tier, "claude")
+
+    def test_remember_escalates(self):
+        router = _make_router()
+        result = router.route("remember that I prefer dark mode")
+        self.assertEqual(result.tier, "claude")
+
+    def test_long_explain_escalates(self):
+        router = _make_router()
+        result = router.route("explain how the skill system works in detail")
+        self.assertEqual(result.tier, "claude")
+
+    def test_short_explain_does_not_escalate(self):
+        router = _make_router()
+        result = router.route("explain this")
+        # Short — no escalate, goes to ollama
+        self.assertNotEqual(result.tier, "claude")
+
+
+class TestSkillPrediction(unittest.TestCase):
+
+    def _make_selector_predicting(self, skill_name: str):
+        """Return a mock SkillSelector that always predicts skill_name."""
+        sel = MagicMock()
+        sel.available = True
+        sel.select = MagicMock(return_value={skill_name})
+        return sel
+
+    def test_claude_only_skill_routes_to_claude(self):
+        sel = self._make_selector_predicting("install_skill")
+        router = _make_router(claude_only={"install_skill"}, skill_selector=sel)
+        result = router.route("make me a new skill")
+        self.assertEqual(result.tier, "claude")
+
+    def test_non_claude_only_skill_routes_to_ollama(self):
+        sel = self._make_selector_predicting("weather")
+        router = _make_router(claude_only={"install_skill"}, skill_selector=sel)
+        result = router.route("what is the weather in London")
+        self.assertEqual(result.tier, "ollama")
+
+    def test_no_skill_selector_defaults_to_ollama(self):
+        router = _make_router(skill_selector=None)
+        result = router.route("some unknown request")
+        self.assertEqual(result.tier, "ollama")
+
+    def test_unavailable_selector_defaults_to_ollama(self):
+        sel = MagicMock()
+        sel.available = False
+        router = _make_router(skill_selector=sel)
+        result = router.route("some unknown request")
+        self.assertEqual(result.tier, "ollama")
+
+
 if __name__ == "__main__":
     unittest.main()
