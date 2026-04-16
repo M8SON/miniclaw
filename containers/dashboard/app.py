@@ -13,6 +13,8 @@ import json
 import re
 import time
 import threading
+import calendar
+from datetime import datetime, timezone
 
 import feedparser
 import requests
@@ -48,6 +50,8 @@ DEFAULT_GDELT_QUERIES = [
     "Burlington Vermont",
     "conflict military geopolitics",
 ]
+
+NEWS_MAX_AGE_SECONDS = 60 * 60 * 72
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +99,34 @@ def _weathercode_icon(code: int) -> str:
     return "🌡️"
 
 
+def _rss_entry_timestamp(entry) -> float:
+    """Return a best-effort UTC timestamp for an RSS/Atom entry."""
+    for field in ("published_parsed", "updated_parsed", "created_parsed"):
+        parsed = getattr(entry, field, None)
+        if parsed:
+            return float(calendar.timegm(parsed))
+    return 0.0
+
+
+def _gdelt_timestamp(article: dict) -> float:
+    """Return a best-effort UTC timestamp for a GDELT article."""
+    raw = (article.get("seendate") or article.get("date") or "").strip()
+    if not raw:
+        return 0.0
+
+    formats = (
+        "%Y%m%dT%H%M%SZ",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d %H:%M:%S",
+    )
+    for fmt in formats:
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            continue
+    return 0.0
+
+
 # ---------------------------------------------------------------------------
 # Data fetchers
 # ---------------------------------------------------------------------------
@@ -113,6 +145,7 @@ def fetch_rss(feeds: list) -> list:
                         "source": source,
                         "text": title,
                         "image_url": _extract_rss_image(entry),
+                        "timestamp": _rss_entry_timestamp(entry),
                     })
         except Exception:
             pass
@@ -137,22 +170,63 @@ def fetch_gdelt(queries: list) -> list:
                 image_url = article.get("socialimage", "")
                 if title and title not in seen:
                     seen.add(title)
-                    items.append({"source": domain, "text": title, "image_url": image_url})
+                    items.append({
+                        "source": domain,
+                        "text": title,
+                        "image_url": image_url,
+                        "timestamp": _gdelt_timestamp(article),
+                    })
         except Exception:
             pass
     return items
 
 
 def fetch_news(rss_feeds: list, gdelt_queries: list) -> list:
-    """Combine RSS and GDELT headlines, deduplicated."""
+    """Combine RSS and GDELT headlines, deduplicated and sorted by recency."""
     seen = set()
     items = []
+    now = time.time()
+
     for item in fetch_rss(rss_feeds) + fetch_gdelt(gdelt_queries):
         key = item["text"].lower()[:60]
         if key not in seen:
             seen.add(key)
             items.append(item)
-    return items[:24]
+
+    fresh_items = []
+    stale_items = []
+    for item in items:
+        ts = float(item.get("timestamp") or 0)
+        if ts and now - ts <= NEWS_MAX_AGE_SECONDS:
+            fresh_items.append(item)
+        else:
+            stale_items.append(item)
+
+    sorted_items = sorted(
+        fresh_items,
+        key=lambda item: (float(item.get("timestamp") or 0), item["text"].lower()),
+        reverse=True,
+    )
+
+    # If every source is missing timestamps or returns only older entries,
+    # allow a small fallback set so the board does not go empty.
+    if not sorted_items:
+        sorted_items = sorted(
+            stale_items,
+            key=lambda item: (float(item.get("timestamp") or 0), item["text"].lower()),
+            reverse=True,
+        )
+
+    cleaned = []
+    for item in sorted_items[:24]:
+        cleaned.append(
+            {
+                "source": item["source"],
+                "text": item["text"],
+                "image_url": item.get("image_url", ""),
+            }
+        )
+    return cleaned
 
 
 def fetch_weather() -> dict:
