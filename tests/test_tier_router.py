@@ -48,8 +48,9 @@ class TestDispatchPatterns(unittest.TestCase):
 
     def test_volume_down_routes_direct(self):
         router = _make_router()
-        result = router.route("louder")
+        result = router.route("volume down")
         self.assertEqual(result.tier, "direct")
+        self.assertEqual(result.args, {"action": "volume_down"})
 
     def test_goodbye_routes_direct_with_action(self):
         router = _make_router()

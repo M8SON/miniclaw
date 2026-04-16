@@ -55,13 +55,24 @@ class TierRouter:
         if not path.exists():
             logger.warning("TierRouter: patterns file not found at %s — no patterns loaded", path)
             return
-        with open(path) as f:
-            data = yaml.safe_load(f) or {}
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            logger.error("TierRouter: malformed YAML at %s — no patterns loaded: %s", path, exc)
+            return
         for entry in data.get("dispatch", []):
-            entry["_re"] = re.compile(entry["pattern"], re.IGNORECASE)
+            try:
+                entry["_re"] = re.compile(entry["pattern"], re.IGNORECASE)
+            except re.error as exc:
+                logger.error("TierRouter: invalid dispatch regex %r — skipping: %s", entry.get("pattern"), exc)
+                continue
             self._dispatch.append(entry)
         for pattern in data.get("escalate", []):
-            self._escalate.append(re.compile(pattern, re.IGNORECASE))
+            try:
+                self._escalate.append(re.compile(pattern, re.IGNORECASE))
+            except re.error as exc:
+                logger.error("TierRouter: invalid escalate regex %r — skipping: %s", pattern, exc)
         logger.info(
             "TierRouter: loaded %d dispatch, %d escalate patterns",
             len(self._dispatch),
