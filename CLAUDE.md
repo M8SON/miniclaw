@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Shared Project Memory
+
+Before relying on stale handoff notes, read `WORKING_MEMORY.md` in the repo root. It is the canonical shared project-memory file for durable context, architecture decisions, and current direction.
+
 ## Project Overview
 
 MiniClaw is a modular, skill-based voice assistant designed for Raspberry Pi. Skills are defined as markdown files and executed in sandboxed Docker containers. Claude API handles reasoning and tool selection.
