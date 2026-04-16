@@ -1,0 +1,37 @@
+# config/intent_patterns.yaml
+#
+# dispatch: patterns that bypass all LLMs and call a skill or session action directly.
+# escalate: patterns that bypass Ollama and go straight to Claude.
+#
+# Patterns are matched case-insensitively against the full transcript.
+# Dispatch is checked first, then escalate, then Ollama is used as default.
+
+dispatch:
+  - pattern: "^(stop|pause|halt)(\\s+music|\\s+playing|\\s+audio)?[.!?]?$"
+    skill: soundcloud_play
+    args: {action: stop}
+
+  - pattern: "^(volume up|turn it up|louder)[.!?]?$"
+    skill: soundcloud_play
+    args: {action: volume_up}
+
+  - pattern: "^(volume down|turn it down|quieter|lower the volume)[.!?]?$"
+    skill: soundcloud_play
+    args: {action: volume_down}
+
+  - pattern: "^(goodbye|bye|good night|stop listening|exit|shut down)[.!?]?$"
+    action: close_session
+
+escalate:
+  # Skill/tool installation — always needs Claude's meta-reasoning
+  - "\\b(install|add|make|create|build)\\s+(a\\s+)?(skill|tool|plugin|command)"
+
+  # Memory operations — Claude is more reliable for structured saves
+  - "\\bsave\\s+(this|that|a\\s+note)\\b"
+  - "\\b(remember|don't forget|keep in mind)\\b"
+
+  # Long explanation requests — likely complex
+  - "\\bexplain\\b.{25,}"
+
+  # Multi-step or compound requests
+  - "\\b(first|then|after that|and also|as well as)\\b.{10,}"
