@@ -115,13 +115,51 @@ class OllamaToolLoop:
                 return EscalateSignal
 
             content = message.get("content") or ""
+            finish_reason = choice.get("finish_reason", "stop")
 
-            # Explicit ESCALATE signal
-            if content.strip() == self.ESCALATE_WORD:
+            # Explicit ESCALATE signal from model
+            if content.strip().upper() == self.ESCALATE_WORD:
                 logger.info("OllamaToolLoop: model signalled ESCALATE → escalate")
                 return EscalateSignal
 
-            # Final text response (tool_calls handled in Task 5)
+            # Tool calls
+            if finish_reason == "tool_calls" and message.get("tool_calls"):
+                tool_calls = message["tool_calls"]
+                local_messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": tool_calls,
+                })
+
+                for tc in tool_calls:
+                    tool_name = tc["function"]["name"]
+                    skill = self.skill_loader.get_skill(tool_name)
+                    if not skill:
+                        logger.warning(
+                            "OllamaToolLoop: unknown tool %r → escalate", tool_name
+                        )
+                        return EscalateSignal
+
+                    try:
+                        args = json.loads(tc["function"]["arguments"])
+                    except (json.JSONDecodeError, KeyError):
+                        logger.warning(
+                            "OllamaToolLoop: malformed args for %r → escalate", tool_name
+                        )
+                        return EscalateSignal
+
+                    result = self.container_manager.execute_skill(skill, args)
+                    result = self._extract_and_save_remember(result)
+                    logger.info("OllamaToolLoop: tool %s → %s", tool_name, result[:100])
+
+                    local_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result,
+                    })
+                continue
+
+            # Final text response
             if content:
                 self._commit_to_state(user_message, content)
                 logger.info("OllamaToolLoop: response ready in %d round(s)", rounds)
