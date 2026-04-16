@@ -106,9 +106,14 @@ class OllamaToolLoop:
                 return EscalateSignal
 
             # Tool call handling and response extraction added in Task 5
-            data = response.json()
-            choice = data["choices"][0]
-            message = choice["message"]
+            try:
+                data = response.json()
+                choice = data["choices"][0]
+                message = choice["message"]
+            except (ValueError, KeyError, IndexError) as exc:
+                logger.warning("OllamaToolLoop: unexpected response format %s → escalate", exc)
+                return EscalateSignal
+
             content = message.get("content") or ""
 
             # Explicit ESCALATE signal
@@ -128,7 +133,7 @@ class OllamaToolLoop:
         logger.warning("OllamaToolLoop: max rounds (%d) reached → escalate", self.max_rounds)
         return EscalateSignal
 
-    def _build_local_messages(self, system_prompt: str, user_message: str) -> list:
+    def _build_local_messages(self, system_prompt: str, user_message: str) -> list[dict]:
         """
         Build an OpenAI-format message list from ConversationState history.
 
@@ -136,18 +141,24 @@ class OllamaToolLoop:
         blocks are skipped since Ollama uses a different tool format.
         """
         local = [{"role": "system", "content": system_prompt}]
+        history = []
         for msg in self.conversation_state.select_messages_for_prompt():
             role = msg.get("role")
             content = msg.get("content")
             if role == "user" and isinstance(content, str):
-                local.append({"role": "user", "content": content})
+                history.append({"role": "user", "content": content})
             elif role == "assistant" and isinstance(content, list):
                 text = " ".join(
                     b.get("text", "") for b in content
                     if isinstance(b, dict) and b.get("type") == "text"
                 ).strip()
                 if text:
-                    local.append({"role": "assistant", "content": text})
+                    history.append({"role": "assistant", "content": text})
+        # Strip leading assistant messages — OpenAI protocol requires user turn first.
+        # This can happen if pruning drops the user turn that preceded a tool exchange.
+        while history and history[0]["role"] == "assistant":
+            history.pop(0)
+        local.extend(history)
         local.append({"role": "user", "content": user_message})
         return local
 

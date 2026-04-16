@@ -64,10 +64,11 @@ class TestEscalateSignal(unittest.TestCase):
         self.assertIs(E1, E2)
 
     def test_escalate_signal_identity_comparison(self):
-        from core.ollama_tool_loop import EscalateSignal
-        self.assertTrue(EscalateSignal is EscalateSignal)
-        self.assertFalse(EscalateSignal is None)
-        self.assertFalse(EscalateSignal is "ESCALATE")
+        from core.ollama_tool_loop import _EscalateSignalType, EscalateSignal
+        second_instance = _EscalateSignalType()
+        self.assertIs(second_instance, EscalateSignal)
+        self.assertIsNot(EscalateSignal, None)
+        self.assertNotEqual(EscalateSignal, "ESCALATE")
 
 
 class TestTimeoutEscalation(unittest.TestCase):
