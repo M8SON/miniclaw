@@ -113,6 +113,20 @@ class TestOrchestratorRoutingEnabled(unittest.TestCase):
         orch.tool_loop.run.assert_not_called()
         self.assertEqual(result, "Stopped.")
 
+    def test_direct_close_session_calls_close_session(self):
+        from core.tier_router import RouteResult
+
+        orch = _make_orchestrator_with_mocks()
+        orch.close_session = MagicMock(return_value="Goodbye!")
+        router = MagicMock()
+        router.route.return_value = RouteResult(tier="direct", action="close_session")
+        orch._tier_router = router
+        orch._ollama_tool_loop = MagicMock()
+        result = orch.process_message("goodbye")
+        orch.close_session.assert_called_once()
+        orch.tool_loop.run.assert_not_called()
+        self.assertEqual(result, "Goodbye!")
+
 
 if __name__ == "__main__":
     unittest.main()
