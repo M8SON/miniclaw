@@ -11,6 +11,7 @@ where capabilities are defined by skill files and executed in containers.
 """
 
 import logging
+import os
 from pathlib import Path
 
 import anthropic
@@ -98,6 +99,37 @@ class Orchestrator:
         # have no user_message to drive semantic selection.
         self.system_prompt = self._build_system_prompt()
 
+        # Tiered intelligence — optional, gated by OLLAMA_ENABLED env var.
+        # When disabled, all requests go through Claude's ToolLoop unchanged.
+        self._tier_router = None
+        self._ollama_tool_loop = None
+        if os.getenv("OLLAMA_ENABLED", "false").lower() == "true":
+            from core.tier_router import TierRouter
+            from core.ollama_tool_loop import OllamaToolLoop
+            _patterns_path = Path(__file__).parent.parent / "config" / "intent_patterns.yaml"
+            _claude_only = set(
+                os.getenv("CLAUDE_ONLY_SKILLS", "install_skill").split(",")
+            )
+            self._tier_router = TierRouter(
+                patterns_path=_patterns_path,
+                skill_selector=self.skill_selector,
+                claude_only_skills=_claude_only,
+            )
+            self._ollama_tool_loop = OllamaToolLoop(
+                host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+                model=os.getenv("OLLAMA_MODEL", "phi4-mini"),
+                skill_loader=self.skill_loader,
+                container_manager=self.container_manager,
+                conversation_state=self.conversation_state,
+                memory_provider=self.memory_provider,
+                timeout_seconds=float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "8")),
+            )
+            logger.info(
+                "Tiered routing enabled: ollama_model=%s, claude_only=%s",
+                os.getenv("OLLAMA_MODEL", "phi4-mini"),
+                _claude_only,
+            )
+
         logger.info(
             "Orchestrator ready: model=%s, skills=%d, selector=%s",
             self.model,
@@ -118,8 +150,50 @@ class Orchestrator:
         return prompt
 
     def process_message(self, user_message: str) -> str:
-        """Process a user message through Claude with tool support."""
+        """Process a user message through the tiered intelligence stack."""
         system_prompt = self._build_system_prompt(user_message=user_message)
+
+        if self._tier_router is None:
+            # OLLAMA_ENABLED=false — existing Claude-only path, unchanged.
+            return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
+
+        route = self._tier_router.route(user_message)
+        logger.debug("TierRouter: %s → tier=%s", user_message[:60], route.tier)
+
+        if route.tier == "direct":
+            return self._execute_direct(route, system_prompt, user_message)
+
+        if route.tier == "claude":
+            return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
+
+        # Ollama tier
+        from core.ollama_tool_loop import EscalateSignal
+        result = self._ollama_tool_loop.run(
+            user_message=user_message, system_prompt=system_prompt
+        )
+        if result is EscalateSignal:
+            logger.info("OllamaToolLoop escalated → Claude")
+            return self.tool_loop.run(
+                user_message=user_message, system_prompt=system_prompt
+            )
+        return result
+
+    def _execute_direct(self, route, system_prompt: str, user_message: str) -> str:
+        """Execute a dispatch-pattern route without any LLM involvement."""
+        if route.action == "close_session":
+            return self.close_session()
+
+        if route.skill:
+            skill = self.skills.get(route.skill)
+            if skill:
+                result = self.container_manager.execute_skill(skill, route.args)
+                return result or "Done."
+
+        # Dispatch resolution failed — fall back to Claude
+        logger.warning(
+            "_execute_direct: could not resolve skill=%r, falling back to Claude",
+            route.skill,
+        )
         return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
 
     def reload_skills(self):
