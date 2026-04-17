@@ -148,7 +148,16 @@ class OllamaToolLoop:
                         )
                         return EscalateSignal
 
-                    result = self.container_manager.execute_skill(skill, args)
+                    try:
+                        result = self.container_manager.execute_skill(skill, args)
+                    except Exception as exc:
+                        logger.warning("OllamaToolLoop: tool %s raised %s → escalate", tool_name, exc)
+                        return EscalateSignal
+
+                    if result is None:
+                        logger.warning("OllamaToolLoop: tool %s returned None → escalate", tool_name)
+                        return EscalateSignal
+
                     result = self._extract_and_save_remember(result)
                     logger.info("OllamaToolLoop: tool %s → %s", tool_name, result[:100])
 
@@ -158,6 +167,15 @@ class OllamaToolLoop:
                         "content": result,
                     })
                 continue
+
+            # Check for finish_reason mismatch with tool_calls
+            if message.get("tool_calls") and finish_reason != "tool_calls":
+                logger.warning(
+                    "OllamaToolLoop: message has tool_calls but finish_reason=%r — "
+                    "model may need tool_call_id support; escalating",
+                    finish_reason,
+                )
+                return EscalateSignal
 
             # Final text response
             if content:

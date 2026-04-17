@@ -217,6 +217,50 @@ class TestEscalateTriggers(unittest.TestCase):
         self.assertEqual(state.messages[0]["role"], "user")
         self.assertEqual(state.messages[1]["role"], "assistant")
 
+    def test_execute_skill_returning_none_escalates(self):
+        from core.ollama_tool_loop import EscalateSignal
+
+        fake_skill = MagicMock()
+        sl = MagicMock()
+        sl.get_tool_definitions.return_value = []
+        sl.get_skill.return_value = fake_skill
+
+        cm = MagicMock()
+        cm.execute_skill.return_value = None
+
+        tool_call = {
+            "id": "call_1",
+            "function": {"name": "weather", "arguments": '{"city": "London"}'},
+        }
+        result = self._run_with_response(
+            _make_response(tool_calls=[tool_call]),
+            skill_loader=sl,
+            container_manager=cm,
+        )
+        self.assertIs(result, EscalateSignal)
+
+    def test_execute_skill_raising_escalates(self):
+        from core.ollama_tool_loop import EscalateSignal
+
+        fake_skill = MagicMock()
+        sl = MagicMock()
+        sl.get_tool_definitions.return_value = []
+        sl.get_skill.return_value = fake_skill
+
+        cm = MagicMock()
+        cm.execute_skill.side_effect = RuntimeError("docker timeout")
+
+        tool_call = {
+            "id": "call_1",
+            "function": {"name": "weather", "arguments": '{"city": "London"}'},
+        }
+        result = self._run_with_response(
+            _make_response(tool_calls=[tool_call]),
+            skill_loader=sl,
+            container_manager=cm,
+        )
+        self.assertIs(result, EscalateSignal)
+
 
 if __name__ == "__main__":
     unittest.main()
