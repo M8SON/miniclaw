@@ -7,10 +7,15 @@ Built around a skill-based architecture where capabilities are defined as lightw
 ## How It Works
 
 ```
-Microphone → Whisper (speech-to-text) → Claude (reasoning + tool selection)
-    → Docker container (skill execution) → Claude (summarize result)
-    → Kokoro TTS (text-to-speech) → Speaker
+Microphone → Whisper (speech-to-text) → TierRouter (<5ms, no LLM)
+    ├─ deterministic → skill called directly   (stop, volume, goodbye)
+    ├─ ollama        → Ollama LLM → skill → Ollama response
+    │                  (escalates to Claude if Ollama can't handle it)
+    └─ claude        → Claude → skill → Claude response
+         → Kokoro TTS (text-to-speech) → Speaker
 ```
+
+**Tiered intelligence** keeps Claude as the premium reasoning layer — invoked only for complex, ambiguous, or meta requests. Routine commands go to a local Ollama model or bypass LLMs entirely. See [Intelligence Tiers](#intelligence-tiers) for details.
 
 The system uses two layers for extensibility:
 
@@ -20,6 +25,7 @@ The system uses two layers for extensibility:
 
 ## Features
 
+- Tiered intelligence — deterministic dispatch for instant commands, Ollama for routine requests, Claude only for complex reasoning
 - Wake word detection (`"computer"`) using a sliding Whisper window — any phrase works, no training required
 - Conversation session mode — stays active between follow-ups until idle timeout
 - Streaming TTS — Kokoro chunks play as they're generated, first words spoken immediately
@@ -217,6 +223,34 @@ mempalace init ~/projects/miniclaw-memory
 
 Set `MEMORY_BACKEND=mempalace` in `.env` to activate it, or leave `MEMORY_BACKEND=auto` to use it when installed and fall back to chromadb otherwise.
 
+## Intelligence Tiers
+
+MiniClaw routes each voice command through a three-tier gate before any LLM runs:
+
+| Tier | Latency | Examples |
+|---|---|---|
+| **Deterministic** | <5ms | "stop", "volume up", "goodbye" |
+| **Ollama** | ~1–3s | "play some jazz", "what's the weather" |
+| **Claude** | ~2–5s | "make a skill that...", "remember that...", complex queries |
+
+The router classifies each transcript using:
+1. **Dispatch patterns** — regex table (`config/intent_patterns.yaml`). Match → skill called directly, no LLM.
+2. **Escalate patterns** — phrases Ollama handles poorly (skill installation, memory, long explanations) → routed straight to Claude, skipping Ollama entirely to avoid double latency.
+3. **Skill prediction** — reuses the existing `SkillSelector`. Skills in `CLAUDE_ONLY_SKILLS` go to Claude; everything else goes to Ollama.
+
+When Ollama can't complete a request (unknown tool, malformed response, timeout, or explicit `ESCALATE` signal), it hands off to Claude with the full conversation context intact — no history is lost.
+
+**Enabling Ollama routing** (requires a local [Ollama](https://ollama.com) installation):
+
+```bash
+# In .env
+OLLAMA_ENABLED=true
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=phi4-mini
+```
+
+Leave `OLLAMA_ENABLED` unset or `false` to use Claude for everything — the existing behaviour is completely unchanged.
+
 ## Configuration
 
 Key environment variables in `.env`:
@@ -248,6 +282,11 @@ Key environment variables in `.env`:
 | `MEMPALACE_MEMORY_ROOM` | `assistant-memory` | Target room when mirroring saved memories |
 | `BRAVE_API_KEY` | — | Required for web search skill |
 | `WEATHER_LOCATION` | `New York,NY` | Default city for the dashboard weather panel |
+| `OLLAMA_ENABLED` | `false` | Enable tiered intelligence (requires local Ollama) |
+| `OLLAMA_HOST` | `http://localhost:11434` | Local Ollama instance URL |
+| `OLLAMA_MODEL` | `phi4-mini` | Ollama model to use for routine commands |
+| `OLLAMA_TIMEOUT_SECONDS` | `8` | Escalate to Claude if Ollama exceeds this |
+| `CLAUDE_ONLY_SKILLS` | `install_skill` | Comma-separated skills always routed to Claude |
 
 ## Power Consumption
 
@@ -272,8 +311,12 @@ The electricity cost is modest in either case, but NPU offload is recommended fo
 MiniClaw/
 ├── main.py                        # Entry point (voice, text, or list mode)
 ├── run.sh                         # Setup + launch script (auto-discovers containers)
+├── config/
+│   └── intent_patterns.yaml       # Dispatch + escalate patterns for TierRouter
 ├── core/
-│   ├── orchestrator.py            # Claude API + skill routing + conversation history
+│   ├── orchestrator.py            # Routing gate + Claude API + conversation history
+│   ├── tier_router.py             # TierRouter: deterministic/ollama/claude classification
+│   ├── ollama_tool_loop.py        # Ollama tool loop with EscalateSignal fallback
 │   ├── skill_loader.py            # Parses SKILL.md files, checks eligibility
 │   ├── container_manager.py       # Docker lifecycle: spin up, execute, tear down
 │   ├── voice.py                   # Whisper STT + Kokoro TTS + R2-D2 sounds
@@ -318,6 +361,7 @@ MiniClaw/
 - [x] Persistent memory with Obsidian integration
 - [x] MemPalace-backed wake-up memory and live semantic recall
 - [x] Visual dashboard skill (news/OSINT, weather, stocks, music — voice-triggered, auto-closes)
+- [x] Tiered intelligence — deterministic dispatch + Ollama routing + Claude fallback (feature-flagged, enable with `OLLAMA_ENABLED=true`)
 - [ ] TTS interruption — stop speaking when user talks over the assistant
 - [ ] AI HAT+ 2 accelerated Whisper (offload STT to Hailo-8L NPU)
 - [ ] AI HAT+ 2 accelerated Kokoro TTS (offload synthesis to Hailo-8L NPU)
