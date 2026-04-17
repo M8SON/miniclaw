@@ -27,6 +27,17 @@ from core.tool_loop import ToolLoop
 logger = logging.getLogger(__name__)
 
 
+def _parse_float(value: str | None, default: float) -> float:
+    """Parse a float env var, falling back to default on invalid values."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning("Invalid float value %r — using default %.1f", value, default)
+        return default
+
+
 class Orchestrator:
     """
     Main coordinator for MiniClaw.
@@ -107,9 +118,9 @@ class Orchestrator:
             from core.tier_router import TierRouter
             from core.ollama_tool_loop import OllamaToolLoop
             _patterns_path = Path(__file__).parent.parent / "config" / "intent_patterns.yaml"
-            _claude_only = set(
-                os.getenv("CLAUDE_ONLY_SKILLS", "install_skill").split(",")
-            )
+            _claude_only = {
+                s.strip() for s in os.getenv("CLAUDE_ONLY_SKILLS", "install_skill").split(",")
+            }
             self._tier_router = TierRouter(
                 patterns_path=_patterns_path,
                 skill_selector=self.skill_selector,
@@ -122,7 +133,7 @@ class Orchestrator:
                 container_manager=self.container_manager,
                 conversation_state=self.conversation_state,
                 memory_provider=self.memory_provider,
-                timeout_seconds=float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "8")),
+                timeout_seconds=_parse_float(os.getenv("OLLAMA_TIMEOUT_SECONDS"), default=8.0),
             )
             logger.info(
                 "Tiered routing enabled: ollama_model=%s, claude_only=%s",
