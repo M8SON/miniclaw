@@ -96,6 +96,17 @@ Users can add new skills entirely by voice:
 
 **Requires:** Claude Code CLI installed (`npm install -g @anthropic-ai/claude-code`) with `ANTHROPIC_API_KEY` available.
 
+### Execution Paths
+
+MiniClaw has two first-class execution paths:
+
+**Docker** — default for stateless, sandboxed skills. Network/text transforms, web queries, API integrations. Isolated, memory-limited, torn down after each call.
+
+**Native** — for skills that need host integration: hardware access, process control, reloading the orchestrator itself, or anything that cannot run in a container. Registered in `container_manager._execute_native_skill`.
+Current native skills: `install_skill`, `set_env_var`, `save_memory`, `dashboard`.
+
+When adding a new skill, choose Docker unless host access is genuinely required.
+
 ### Skill Structure
 
 Every Docker skill follows the same layout:
