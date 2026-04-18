@@ -210,6 +210,14 @@ class Orchestrator:
         Anthropic format, then asks Claude to summarize the results without
         re-executing any tools.
         """
+        if not tool_activity:
+            logger.warning(
+                "_claude_finalize_ollama_turn: called with empty tool_activity — falling back to Claude"
+            )
+            return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
+
+        # OllamaToolLoop does NOT write to ConversationState on escalation paths,
+        # so we are responsible for the full turn: user message → tool_use → tool_result.
         # Commit the user message
         self.conversation_state.append_user_text(user_message)
 
