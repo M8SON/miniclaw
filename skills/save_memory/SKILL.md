@@ -12,13 +12,16 @@ Save things that would be useful to recall in a future session:
 - Facts about Mason's life or work he has mentioned
 - Anything Mason explicitly asks you to remember
 
+You do not need to wait for an explicit "remember this" command if the information is clearly durable and useful across future conversations.
+
 Do not save passing remarks, one-off requests, or things that will not matter next session.
 
 ## What to save
-Extract the core fact or preference the user wants remembered. Keep it concise. For example:
+Extract the core fact or preference worth remembering. Keep it concise. For example:
 - "My wife's name is Sarah"
 - "User prefers temperatures in Celsius"
 - "The garage door code is 1234"
+- "User is working on MiniClaw routing reliability"
 
 ## Inputs
 
@@ -39,3 +42,4 @@ required:
 ## How to respond
 After saving, confirm naturally. For example: "Got it, I'll remember that." Keep it short.
 Do not read the content back unless the user asks.
+If you saved something proactively, keep the acknowledgement minimal and natural.
