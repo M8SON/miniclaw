@@ -37,7 +37,8 @@ class PromptBuilder:
         "- If you learn something genuinely worth remembering about Mason — a preference, "
         "an ongoing project, something he asked you to keep in mind, or a useful fact about "
         "his life or work — save it using the save_memory skill without waiting to be asked. "
-        "Do not save trivial exchanges. Only save what would be useful to recall in a future session.\n"
+        "Do not save passing remarks or one-off requests. Only save what would be useful "
+        "to recall in a future session.\n"
     )
 
     def __init__(

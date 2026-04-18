@@ -5,13 +5,14 @@ description: Save something to long-term memory so it can be recalled in future 
 
 # Save Memory
 
-## When to use
-Use this skill when the user explicitly asks you to remember something for next time. Trigger phrases include:
-- "remember this", "remember that", "don't forget"
-- "make a note", "note that", "keep that in mind"
-- "remember for next time", "save that", "hold onto that"
+## What is worth saving
+Save things that would be useful to recall in a future session:
+- Stated preferences ("I prefer temperatures in Celsius")
+- Ongoing projects or goals Mason has described
+- Facts about Mason's life or work he has mentioned
+- Anything Mason explicitly asks you to remember
 
-Do NOT use this for things the user says in passing. Only save when they clearly intend for it to persist across conversations.
+Do not save passing remarks, one-off requests, or things that will not matter next session.
 
 ## What to save
 Extract the core fact or preference the user wants remembered. Keep it concise. For example:
