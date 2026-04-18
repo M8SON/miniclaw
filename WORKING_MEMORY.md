@@ -13,7 +13,7 @@ Update this file when durable project context changes. Do not create overlapping
 ## What It Is
 
 - Modular Raspberry Pi voice assistant built around markdown-defined skills.
-- Main flow: Whisper STT -> Claude reasoning/tool selection -> native or Docker skill execution -> Kokoro TTS.
+- Main flow: Whisper STT -> TierRouter -> direct native skill or Ollama or Claude -> native or Docker skill execution -> Kokoro TTS.
 
 ## Stable Decisions
 
@@ -22,9 +22,14 @@ Update this file when durable project context changes. Do not create overlapping
 - Memory source of truth is the markdown vault at `~/.miniclaw/memory`.
 - chromadb is the default semantic memory layer.
 - MemPalace is optional and not required for normal operation.
+- MiniClaw remains vault-backed even when MemPalace is installed: markdown vault is canonical storage, chromadb is the local semantic index, and MemPalace is an optional local API/CLI and wake-up/search layer over that store.
 - Tiered routing gate: `TierRouter` classifies each transcript (<5ms, no LLM) as
   direct | ollama | claude. Ollama handles routine tool calls; Claude handles complex,
   ambiguous, and meta requests. Feature-flagged via `OLLAMA_ENABLED`.
+- Direct routes now avoid building the full Claude system prompt first.
+- If Ollama runs tools and then cannot finish the turn, MiniClaw now commits that tool activity into `ConversationState` and asks Claude to finalize the response without re-running the tools.
+- Native handlers are a first-class execution path alongside Docker, not just a temporary exception.
+- Memory policy is intentionally proactive: save durable, useful long-term facts even without an explicit "remember this" request; avoid trivial or one-turn context.
 
 ## Skill Split
 
@@ -41,6 +46,7 @@ Update this file when durable project context changes. Do not create overlapping
 - Dashboard skill instructions were trimmed as part of token reduction.
 - Tiered intelligence architecture implemented (behind `OLLAMA_ENABLED=false`).
   Three tiers: deterministic → Ollama → Claude. Activate when Pi hardware arrives.
+- The major Ollama/Claude handoff seam has been hardened: escalation after tool execution no longer requires re-executing the same side effects.
 
 ## Recent Durable Milestones
 
@@ -50,6 +56,10 @@ Update this file when durable project context changes. Do not create overlapping
 - 2026-04-16: designed and implemented tiered intelligence: deterministic → Ollama → Claude
   TierRouter, OllamaToolLoop, config/intent_patterns.yaml
   all gated behind OLLAMA_ENABLED=false; zero behaviour change until activated
+- 2026-04-18: clarified MemPalace integration and tightened routing architecture
+  direct routes now defer prompt building until needed
+  Ollama escalation with tool activity now finalizes through Claude without replaying tools
+  save_memory policy aligned with proactive long-term memory behavior
 
 ## Known Gaps
 
@@ -57,6 +67,7 @@ Update this file when durable project context changes. Do not create overlapping
 - Dashboard end-to-end validation on real Pi hardware is still pending.
 - Voice stop/pause control for music is still incomplete.
 - Pi 5 + AI HAT+ 2 dependent work is still blocked on hardware.
+- Memory behavior is structurally aligned now, but still worth validating in practice once more real conversations accumulate.
 
 ## Open Technical Notes
 
@@ -65,8 +76,8 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Likely Next Direction
 
-- Add a local intent classifier on Pi hardware as a gatekeeper for routine commands.
-- Goal: bypass Claude entirely for simple, high-confidence intents like music and weather, and escalate only ambiguous or complex requests.
+- Validate the current tiered architecture on real Pi hardware before adding more routing complexity.
+- Focus next on behavioral polish: real-world memory quality, voice flow smoothness, and routine-command reliability.
 
 ## Editing Rules
 
