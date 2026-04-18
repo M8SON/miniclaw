@@ -4,10 +4,12 @@ OllamaToolLoop - Ollama-backed tool loop for MiniClaw.
 Mirrors ToolLoop's interface but calls Ollama's OpenAI-compatible API
 (/v1/chat/completions with tools parameter).
 
-Returns EscalateSignal when it cannot handle the request — the Orchestrator
-then re-runs the same turn with Claude's ToolLoop. ConversationState is NOT
-updated until the loop succeeds, so Claude's ToolLoop can append the user
-message and full exchange itself.
+Returns EscalateSignal when it cannot handle the request and no tools ran —
+the Orchestrator then re-runs the same turn with Claude's ToolLoop.
+Returns EscalateWithContext when tools executed but the loop could not
+complete — the Orchestrator commits the tool activity to ConversationState
+before asking Claude to finalize. ConversationState is NOT updated until
+the loop succeeds.
 """
 
 import json
