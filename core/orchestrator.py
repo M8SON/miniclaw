@@ -178,16 +178,84 @@ class Orchestrator:
             return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
 
         # Ollama tier
-        from core.ollama_tool_loop import EscalateSignal
+        from core.ollama_tool_loop import EscalateSignal, EscalateWithContext
         result = self._ollama_tool_loop.run(
             user_message=user_message, system_prompt=system_prompt
         )
         if result is EscalateSignal:
-            logger.info("OllamaToolLoop escalated → Claude")
+            logger.info("OllamaToolLoop escalated → Claude (no tools ran)")
             return self.tool_loop.run(
                 user_message=user_message, system_prompt=system_prompt
             )
+        if isinstance(result, EscalateWithContext):
+            logger.info(
+                "OllamaToolLoop escalated with %d tool(s) → Claude finalize",
+                len(result.tool_activity),
+            )
+            return self._claude_finalize_ollama_turn(
+                user_message, result.tool_activity, system_prompt
+            )
         return result
+
+    def _claude_finalize_ollama_turn(
+        self,
+        user_message: str,
+        tool_activity: list[dict],
+        system_prompt: str,
+    ) -> str:
+        """
+        Finalize a turn where Ollama ran tools but couldn't produce a response.
+
+        Commits the user message and tool activity to ConversationState in
+        Anthropic format, then asks Claude to summarize the results without
+        re-executing any tools.
+        """
+        # Commit the user message
+        self.conversation_state.append_user_text(user_message)
+
+        # Commit the tool_use assistant turn (synthetic Anthropic format)
+        tool_use_blocks = [
+            {
+                "type": "tool_use",
+                "id": f"ollama_{i}",
+                "name": activity["name"],
+                "input": activity["args"],
+            }
+            for i, activity in enumerate(tool_activity)
+        ]
+        self.conversation_state.append_assistant_content(tool_use_blocks)
+
+        # Commit the tool_result user turn
+        tool_result_blocks = [
+            {
+                "type": "tool_result",
+                "tool_use_id": f"ollama_{i}",
+                "content": activity["result"],
+            }
+            for i, activity in enumerate(tool_activity)
+        ]
+        self.conversation_state.append_tool_results(tool_result_blocks)
+
+        # Ask Claude to produce a final spoken response — no tools offered
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=self.conversation_state.select_messages_for_prompt(),
+        )
+
+        response_text = " ".join(
+            block.text for block in response.content if block.type == "text"
+        )
+        self.conversation_state.append_assistant_content(
+            [{"type": "text", "text": t} for t in [response_text] if t]
+        )
+        self.conversation_state.prune()
+
+        logger.info(
+            "_claude_finalize_ollama_turn: finalized with %d tool(s)", len(tool_activity)
+        )
+        return response_text or "Done."
 
     def _execute_direct(self, route, system_prompt: str, user_message: str) -> str:
         """Execute a dispatch-pattern route without any LLM involvement."""
