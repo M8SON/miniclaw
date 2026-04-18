@@ -256,9 +256,10 @@ class Orchestrator:
         response_text = " ".join(
             block.text for block in response.content if block.type == "text"
         )
-        self.conversation_state.append_assistant_content(
-            [{"type": "text", "text": t} for t in [response_text] if t]
-        )
+        if response_text:
+            self.conversation_state.append_assistant_content(
+                [{"type": "text", "text": response_text}]
+            )
         self.conversation_state.prune()
 
         logger.info(
