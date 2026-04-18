@@ -13,6 +13,7 @@ message and full exchange itself.
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 
 import requests
 
@@ -34,6 +35,18 @@ class _EscalateSignalType:
 
 # Module-level singleton — use `result is EscalateSignal` to detect escalation.
 EscalateSignal = _EscalateSignalType()
+
+
+@dataclass
+class EscalateWithContext:
+    """
+    Returned by OllamaToolLoop when tools executed but the loop could not
+    complete. Carries the tool activity so the orchestrator can commit it
+    to ConversationState before asking Claude to finalize without re-running.
+    """
+    tool_activity: list[dict] = field(default_factory=list)
+    # Each entry: {"name": str, "args": dict, "result": str}
+
 
 _REMEMBER_RE = re.compile(
     r"\n?##\s*remember:\n+topic:\s*(.+?)\n+content:\s*(.+?)(?=\n##|\Z)",
@@ -72,16 +85,19 @@ class OllamaToolLoop:
         self.timeout = timeout_seconds
         self.max_rounds = max_rounds
 
-    def run(self, user_message: str, system_prompt: str) -> "str | _EscalateSignalType":
+    def run(self, user_message: str, system_prompt: str) -> "str | _EscalateSignalType | EscalateWithContext":
         """
         Process a user message through Ollama with tool support.
 
         Returns a string response on success, or EscalateSignal if Ollama
-        cannot handle the request. ConversationState is only modified on success.
+        cannot handle the request (no tools ran), or EscalateWithContext if tools
+        executed but the loop could not complete. ConversationState is only
+        modified on success.
         """
         local_messages = self._build_local_messages(system_prompt, user_message)
         tool_definitions = self._build_tool_definitions()
         rounds = 0
+        _executed_tools: list[dict] = []
 
         while rounds < self.max_rounds:
             rounds += 1
@@ -100,10 +116,10 @@ class OllamaToolLoop:
                 response.raise_for_status()
             except requests.Timeout:
                 logger.warning("OllamaToolLoop: timeout after %.1fs → escalate", self.timeout)
-                return EscalateSignal
+                return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
             except requests.RequestException as exc:
                 logger.warning("OllamaToolLoop: request error %s → escalate", exc)
-                return EscalateSignal
+                return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
             # Tool call handling and response extraction added in Task 5
             try:
@@ -112,7 +128,7 @@ class OllamaToolLoop:
                 message = choice["message"]
             except (ValueError, KeyError, IndexError) as exc:
                 logger.warning("OllamaToolLoop: unexpected response format %s → escalate", exc)
-                return EscalateSignal
+                return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
             content = message.get("content") or ""
             finish_reason = choice.get("finish_reason", "stop")
@@ -120,7 +136,7 @@ class OllamaToolLoop:
             # Explicit ESCALATE signal from model
             if content.strip().upper() == self.ESCALATE_WORD:
                 logger.info("OllamaToolLoop: model signalled ESCALATE → escalate")
-                return EscalateSignal
+                return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
             # Tool calls
             if finish_reason == "tool_calls" and message.get("tool_calls"):
@@ -138,7 +154,7 @@ class OllamaToolLoop:
                         logger.warning(
                             "OllamaToolLoop: unknown tool %r → escalate", tool_name
                         )
-                        return EscalateSignal
+                        return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
                     try:
                         args = json.loads(tc["function"]["arguments"])
@@ -146,19 +162,20 @@ class OllamaToolLoop:
                         logger.warning(
                             "OllamaToolLoop: malformed args for %r → escalate", tool_name
                         )
-                        return EscalateSignal
+                        return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
                     try:
                         result = self.container_manager.execute_skill(skill, args)
                     except Exception as exc:
                         logger.warning("OllamaToolLoop: tool %s raised %s → escalate", tool_name, exc)
-                        return EscalateSignal
+                        return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
                     if result is None:
                         logger.warning("OllamaToolLoop: tool %s returned None → escalate", tool_name)
-                        return EscalateSignal
+                        return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
                     result = self._extract_and_save_remember(result)
+                    _executed_tools.append({"name": tool_name, "args": args, "result": result})
                     logger.info("OllamaToolLoop: tool %s → %s", tool_name, result[:100])
 
                     local_messages.append({
@@ -175,7 +192,7 @@ class OllamaToolLoop:
                     "model may need tool_call_id support; escalating",
                     finish_reason,
                 )
-                return EscalateSignal
+                return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
             # Final text response
             if content:
@@ -184,10 +201,10 @@ class OllamaToolLoop:
                 return content
 
             logger.warning("OllamaToolLoop: empty response → escalate")
-            return EscalateSignal
+            return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
         logger.warning("OllamaToolLoop: max rounds (%d) reached → escalate", self.max_rounds)
-        return EscalateSignal
+        return EscalateWithContext(_executed_tools) if _executed_tools else EscalateSignal
 
     def _build_local_messages(self, system_prompt: str, user_message: str) -> list[dict]:
         """
