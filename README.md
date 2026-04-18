@@ -214,14 +214,24 @@ Memories are saved as markdown files in `~/.miniclaw/memory/` (configurable via 
 
 ### Optional: MemPalace
 
-[MemPalace](https://github.com/milla-jovovich/mempalace) is an optional upgrade that adds curated wake-up summaries and a CLI for browsing the vector store. The core semantic recall works without it.
+[MemPalace](https://github.com/milla-jovovich/mempalace) is an optional layer on top of MiniClaw's built-in memory system. MiniClaw always stores memories as markdown notes in the vault, and when `chromadb` is available it also keeps those notes synced into a local vector store for semantic recall. Installing MemPalace does not replace that storage model. Instead, MiniClaw will prefer MemPalace's Python API or CLI for:
+
+- **Wake-up memory** — curated startup summaries via `mempalace wake-up`
+- **Per-message recall** — semantic search via `mempalace search`
+- **Browsing/debugging** — using the MemPalace CLI against the same local palace directory
+
+If MemPalace is not installed, MiniClaw still keeps semantic recall working through direct `chromadb` access. In other words:
+
+- **Vault markdown files** remain the source of truth
+- **chromadb** provides the actual local vector store
+- **MemPalace** is an optional interface and summarization layer over that store
 
 ```bash
 pip install mempalace
 mempalace init ~/projects/miniclaw-memory
 ```
 
-Set `MEMORY_BACKEND=mempalace` in `.env` to activate it, or leave `MEMORY_BACKEND=auto` to use it when installed and fall back to chromadb otherwise.
+Set `MEMORY_BACKEND=mempalace` in `.env` to force MiniClaw to prefer the MemPalace bridge, or leave `MEMORY_BACKEND=auto` to use MemPalace when installed and otherwise fall back to direct `chromadb` access.
 
 ## Intelligence Tiers
 
