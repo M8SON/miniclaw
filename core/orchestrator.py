@@ -162,17 +162,18 @@ class Orchestrator:
 
     def process_message(self, user_message: str) -> str:
         """Process a user message through the tiered intelligence stack."""
-        system_prompt = self._build_system_prompt(user_message=user_message)
-
         if self._tier_router is None:
-            # OLLAMA_ENABLED=false — existing Claude-only path, unchanged.
+            # OLLAMA_ENABLED=false — Claude-only path, unchanged.
+            system_prompt = self._build_system_prompt(user_message=user_message)
             return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
 
         route = self._tier_router.route(user_message)
         logger.debug("TierRouter: %s → tier=%s", user_message[:60], route.tier)
 
         if route.tier == "direct":
-            return self._execute_direct(route, system_prompt, user_message)
+            return self._execute_direct(route, user_message)
+
+        system_prompt = self._build_system_prompt(user_message=user_message)
 
         if route.tier == "claude":
             return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
@@ -265,7 +266,7 @@ class Orchestrator:
         )
         return response_text or "Done."
 
-    def _execute_direct(self, route, system_prompt: str, user_message: str) -> str:
+    def _execute_direct(self, route, user_message: str) -> str:
         """Execute a dispatch-pattern route without any LLM involvement."""
         if route.action == "close_session":
             return self.close_session()
@@ -276,11 +277,12 @@ class Orchestrator:
                 result = self.container_manager.execute_skill(skill, route.args)
                 return result or "Done."
 
-        # Dispatch resolution failed — fall back to Claude
+        # Dispatch resolution failed — build prompt lazily and fall back to Claude
         logger.warning(
             "_execute_direct: could not resolve skill=%r, falling back to Claude",
             route.skill,
         )
+        system_prompt = self._build_system_prompt(user_message=user_message)
         return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
 
     def reload_skills(self):
