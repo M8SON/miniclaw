@@ -43,7 +43,7 @@ class MemPalaceBridge:
 
     def load_wake_up(self) -> str:
         """Return wake-up memory text trimmed to the configured token budget."""
-        text = self._load_via_python_api()
+        text = self._load_via_python_package()
         if not text:
             text = self._load_via_cli()
         if not text:
@@ -52,7 +52,7 @@ class MemPalaceBridge:
 
     def search(self, query: str, limit: int = 5, budget_tokens: int | None = None) -> str:
         """Return compact semantic search results for a live user message."""
-        text = self._search_via_python_api(query=query, limit=limit)
+        text = self._search_via_python_package(query=query, limit=limit)
         if not text:
             text = self._search_via_cli(query=query, limit=limit)
         if not text:
@@ -124,8 +124,8 @@ class MemPalaceBridge:
         )
         return True
 
-    def _load_via_python_api(self) -> str:
-        """Use MemPalace's Python API when the package is installed."""
+    def _load_via_python_package(self) -> str:
+        """Use the locally installed MemPalace Python package when available."""
         try:
             layers_module = importlib.import_module("mempalace.layers")
         except ImportError:
@@ -166,7 +166,7 @@ class MemPalaceBridge:
             return ""
         return result.stdout.strip()
 
-    def _search_via_python_api(self, query: str, limit: int) -> str:
+    def _search_via_python_package(self, query: str, limit: int) -> str:
         try:
             layers_module = importlib.import_module("mempalace.layers")
         except ImportError:
