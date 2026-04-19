@@ -561,7 +561,11 @@ class DashboardEONETTests(unittest.TestCase):
             "os.environ",
             {
                 "SKILL_INPUT": "{\"panels\": [\"news\"]}",
-                "DASHBOARD_CONFIG": "{\"hazards\": {\"categories\": \"wildfires,severeStorms\"}}",
+                "DASHBOARD_CONFIG": (
+                    "{\"hazards\": {\"categories\": \"wildfires,severeStorms\", "
+                    "\"limit\": \"abc\", \"min_score\": \"oops\", \"days\": \"bad\", "
+                    "\"fetch_limit\": \"broken\"}}"
+                ),
             },
             clear=False,
         ):
@@ -572,7 +576,37 @@ class DashboardEONETTests(unittest.TestCase):
             string_category_cfg = dict(dashboard_app._state["hazard_config"])
 
         self.assertEqual(string_category_cfg["categories"], ["wildfires", "severeStorms"])
+        self.assertEqual(string_category_cfg["limit"], 3)
+        self.assertEqual(string_category_cfg["min_score"], 40)
+        self.assertEqual(string_category_cfg["days"], 14)
+        self.assertEqual(string_category_cfg["fetch_limit"], 20)
         mock_run.assert_called_once()
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_main_copies_default_categories_into_state_without_aliasing(self):
+        dashboard_app = _load_dashboard_app()
+
+        dashboard_app._state["hazard_config"]["categories"].append("bootAlias")
+        self.assertNotIn("bootAlias", dashboard_app.DEFAULT_HAZARD_CONFIG["categories"])
+        dashboard_app._state["hazard_config"]["categories"].remove("bootAlias")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+                "DASHBOARD_CONFIG": "{}",
+            },
+            clear=False,
+        ):
+            with patch.object(dashboard_app.app, "run"):
+                dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            state_categories = dashboard_app._state["hazard_config"]["categories"]
+            state_categories.append("customHazard")
+
+        self.assertNotIn("customHazard", dashboard_app.DEFAULT_HAZARD_CATEGORIES)
+        self.assertNotIn("customHazard", dashboard_app.DEFAULT_HAZARD_CONFIG["categories"])
 
 
 if __name__ == "__main__":

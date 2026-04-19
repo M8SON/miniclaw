@@ -62,7 +62,7 @@ _state = {
     "rss_feeds": [],
     "gdelt_queries": [],
     "stock_tickers": list(DEFAULT_STOCK_TICKERS),
-    "hazard_config": dict(DEFAULT_HAZARD_CONFIG),
+    "hazard_config": default_hazard_config(),
 }
 
 DEFAULT_RSS_FEEDS = [
@@ -308,11 +308,23 @@ def _normalize_hazard_config(raw_hazards, *, enabled: bool) -> dict:
     else:
         categories = list(DEFAULT_HAZARD_CATEGORIES)
 
+    hazard_cfg["limit"] = _normalize_hazard_int(hazard_cfg.get("limit"), default=3, minimum=1)
+    hazard_cfg["min_score"] = _normalize_hazard_int(hazard_cfg.get("min_score"), default=40, minimum=0)
+    hazard_cfg["days"] = _normalize_hazard_int(hazard_cfg.get("days"), default=14, minimum=1)
+    hazard_cfg["fetch_limit"] = _normalize_hazard_int(hazard_cfg.get("fetch_limit"), default=20, minimum=1)
     hazard_cfg["enabled"] = enabled if raw_hazards is None or not isinstance(raw_hazards, dict) else bool(
         hazard_cfg.get("enabled", enabled)
     )
     hazard_cfg["categories"] = categories or list(DEFAULT_HAZARD_CATEGORIES)
     return hazard_cfg
+
+
+def _normalize_hazard_int(value, *, default: int, minimum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= minimum else default
 
 
 def fetch_weather() -> dict:
