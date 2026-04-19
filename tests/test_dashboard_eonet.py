@@ -327,13 +327,19 @@ class DashboardEONETTests(unittest.TestCase):
     def test_zero_negative_and_malformed_magnitude_do_not_gain_bonus(self):
         baseline = normalize_event(NO_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
 
-        zero_score = normalize_event(ZERO_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
-        negative_score = normalize_event(NEGATIVE_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
-        malformed_score = normalize_event(MALFORMED_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
+        zero_item = normalize_event(ZERO_MAG_EARTHQUAKE, now_ts=1776596400)
+        negative_item = normalize_event(NEGATIVE_MAG_EARTHQUAKE, now_ts=1776596400)
+        malformed_item = normalize_event(MALFORMED_MAG_EARTHQUAKE, now_ts=1776596400)
 
-        self.assertEqual(zero_score, baseline)
-        self.assertEqual(negative_score, baseline)
-        self.assertEqual(malformed_score, baseline)
+        self.assertEqual(zero_item["score"], baseline)
+        self.assertEqual(negative_item["score"], baseline)
+        self.assertEqual(malformed_item["score"], baseline)
+        self.assertEqual(zero_item["magnitude_label"], "Earthquake timing check")
+        self.assertEqual(negative_item["magnitude_label"], "Earthquake timing check")
+        self.assertEqual(malformed_item["magnitude_label"], "Earthquake timing check")
+        self.assertNotIn("0", zero_item["magnitude_label"])
+        self.assertNotIn("-1", negative_item["magnitude_label"])
+        self.assertNotIn("unknown", malformed_item["magnitude_label"].lower())
 
     def test_build_priority_hazards_prefers_major_hazard_over_lower_signal_item(self):
         ranked = build_priority_hazards(

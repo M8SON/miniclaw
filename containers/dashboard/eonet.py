@@ -187,19 +187,17 @@ def _magnitude_label(category_label: str, event: dict[str, Any]) -> str:
     unit = _magnitude_unit(event)
     description = _magnitude_description(event)
 
-    parts: list[str] = []
-    if unit and value:
-        parts.append(f"{unit} {value}")
-    elif value:
-        parts.append(value)
-    elif unit:
-        parts.append(unit)
-
-    if description:
-        parts.append(description)
-
-    if parts:
-        return " - ".join(parts)
+    numeric_value = _magnitude_numeric_value(event)
+    if numeric_value is not None and numeric_value > 0:
+        parts: list[str] = []
+        if unit:
+            parts.append(f"{unit} {value}")
+        elif value:
+            parts.append(value)
+        if description:
+            parts.append(description)
+        if parts:
+            return " - ".join(parts)
 
     title = str(event.get("title", "") or "").strip()
     if title:
