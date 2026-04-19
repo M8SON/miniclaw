@@ -89,6 +89,9 @@ def build_priority_hazards(
     focus_location: dict[str, Any] | None,
     now_ts: float | None = None,
 ) -> list[dict[str, Any]]:
+    if not hazard_cfg.get("enabled", True):
+        return []
+
     min_score = int(hazard_cfg.get("min_score", 40))
     limit = int(hazard_cfg.get("limit", 3))
 
@@ -157,14 +160,15 @@ def _region_label(
     coordinates: Any,
     focus_location: dict[str, Any] | None,
 ) -> str:
-    if not _valid_coordinates(coordinates):
+    point = _representative_point(coordinates)
+    if point is None:
         return "Global"
     if focus_location and _valid_focus_location(focus_location):
         distance = _distance_km(
             float(focus_location["lat"]),
             float(focus_location["lon"]),
-            float(coordinates[1]),
-            float(coordinates[0]),
+            point[1],
+            point[0],
         )
         if distance <= 250:
             name = str(focus_location.get("name", "") or "").strip()
@@ -237,15 +241,34 @@ def _is_locally_relevant(
 ) -> bool:
     if not focus_location or not _valid_focus_location(focus_location):
         return False
-    if not _valid_coordinates(coordinates):
+    point = _representative_point(coordinates)
+    if point is None:
         return False
     distance = _distance_km(
         float(focus_location["lat"]),
         float(focus_location["lon"]),
-        float(coordinates[1]),
-        float(coordinates[0]),
+        point[1],
+        point[0],
     )
     return distance <= 500
+
+
+def _representative_point(coordinates: Any) -> tuple[float, float] | None:
+    points = list(_iter_points(coordinates))
+    if not points:
+        return None
+    lon = sum(point[0] for point in points) / len(points)
+    lat = sum(point[1] for point in points) / len(points)
+    return (lon, lat)
+
+
+def _iter_points(value: Any):
+    if isinstance(value, (list, tuple)):
+        if len(value) >= 2 and all(isinstance(item, (int, float)) for item in value[:2]):
+            yield (float(value[0]), float(value[1]))
+            return
+        for item in value:
+            yield from _iter_points(item)
 
 
 def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

@@ -38,6 +38,44 @@ OPEN_DUST = {
     ],
 }
 
+POLYGON_WILDFIRE = {
+    "id": "EONET_3",
+    "title": "Wildfire affecting a nearby area",
+    "closed": None,
+    "categories": [{"id": "wildfires", "title": "Wildfires"}],
+    "sources": [{"id": "NASA", "url": "https://example.invalid/polygon-fire"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T09:00:00Z",
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [-73.40, 44.35],
+                    [-73.10, 44.35],
+                    [-73.10, 44.55],
+                    [-73.40, 44.55],
+                    [-73.40, 44.35],
+                ]
+            ],
+        }
+    ],
+}
+
+SEVERE_STORM = {
+    "id": "EONET_4",
+    "title": "Severe storm over open water",
+    "closed": None,
+    "categories": [{"id": "severeStorms", "title": "Severe Storms"}],
+    "sources": [{"id": "NASA", "url": "https://example.invalid/storm"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T11:00:00Z",
+            "type": "Point",
+            "coordinates": [-10.0, 10.0],
+        }
+    ],
+}
+
 
 class DashboardEONETTests(unittest.TestCase):
     def test_normalize_event_extracts_dashboard_fields(self):
@@ -60,14 +98,15 @@ class DashboardEONETTests(unittest.TestCase):
 
     def test_build_priority_hazards_prefers_major_hazard_over_lower_signal_item(self):
         ranked = build_priority_hazards(
-            [OPEN_DUST, OPEN_WILDFIRE],
+            [SEVERE_STORM, OPEN_WILDFIRE],
             hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
-            focus_location={"name": "Burlington", "lat": 44.47, "lon": -73.21},
+            focus_location=None,
             now_ts=1776596400,
         )
 
         self.assertEqual(ranked[0]["category"], "wildfires")
-        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[1]["category"], "severeStorms")
+        self.assertEqual(len(ranked), 2)
 
     def test_build_priority_hazards_returns_empty_when_all_items_are_below_threshold(self):
         ranked = build_priority_hazards(
@@ -78,6 +117,26 @@ class DashboardEONETTests(unittest.TestCase):
         )
 
         self.assertEqual(ranked, [])
+
+    def test_build_priority_hazards_returns_empty_when_disabled(self):
+        ranked = build_priority_hazards(
+            [OPEN_WILDFIRE],
+            hazard_cfg={"enabled": False, "limit": 3, "min_score": 40},
+            focus_location={"name": "Burlington", "lat": 44.47, "lon": -73.21},
+            now_ts=1776596400,
+        )
+
+        self.assertEqual(ranked, [])
+
+    def test_normalize_event_uses_polygon_geometry_for_local_relevance(self):
+        far_item = normalize_event(POLYGON_WILDFIRE)
+        near_item = normalize_event(
+            POLYGON_WILDFIRE,
+            focus_location={"name": "Burlington", "lat": 44.47, "lon": -73.21},
+        )
+
+        self.assertNotEqual(near_item["region_label"], "Global")
+        self.assertGreater(near_item["score"], far_item["score"])
 
     @patch("containers.dashboard.eonet.requests.get")
     def test_fetch_eonet_events_returns_empty_list_on_http_failure(self, mock_get):
