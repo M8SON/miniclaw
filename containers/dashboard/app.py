@@ -32,6 +32,19 @@ except ImportError:
     from eonet import build_priority_hazards, fetch_eonet_events
 
 try:
+    from .dashboard_defaults import (
+        DEFAULT_HAZARD_CATEGORIES,
+        DEFAULT_HAZARD_CONFIG,
+        default_hazard_config,
+    )
+except ImportError:
+    from dashboard_defaults import (
+        DEFAULT_HAZARD_CATEGORIES,
+        DEFAULT_HAZARD_CONFIG,
+        default_hazard_config,
+    )
+
+try:
     import yfinance as yf
     YFINANCE_AVAILABLE = True
 except ImportError:
@@ -41,30 +54,6 @@ except ImportError:
 app = Flask(__name__)
 
 DEFAULT_STOCK_TICKERS = ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"]
-DEFAULT_HAZARD_CATEGORIES = [
-    "wildfires",
-    "severeStorms",
-    "volcanoes",
-    "floods",
-    "earthquakes",
-    "landslides",
-    "extremeTemperatures",
-    "dustHaze",
-]
-
-
-def default_hazard_config(enabled: bool = True) -> dict:
-    return {
-        "enabled": enabled,
-        "limit": 3,
-        "min_score": 40,
-        "days": 14,
-        "fetch_limit": 20,
-        "categories": list(DEFAULT_HAZARD_CATEGORIES),
-    }
-
-
-DEFAULT_HAZARD_CONFIG = default_hazard_config()
 
 _state_lock = threading.Lock()
 _state = {

@@ -22,7 +22,7 @@ import urllib.parse
 from datetime import date
 from pathlib import Path
 
-from containers.dashboard.app import default_hazard_config
+from containers.dashboard.dashboard_defaults import default_hazard_config
 from core.mempalace_bridge import MemPalaceBridge
 
 logger = logging.getLogger(__name__)

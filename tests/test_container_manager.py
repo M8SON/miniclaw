@@ -1,12 +1,29 @@
+import builtins
+import importlib
 import os
 import tempfile
 import unittest
 import json
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.test_dashboard_eonet import _default_hazard_config, _load_dashboard_app
-from core.container_manager import ContainerManager
+
+def _load_container_manager(*, missing_flask: bool = False):
+    sys.modules.pop("core.container_manager", None)
+
+    if not missing_flask:
+        return importlib.import_module("core.container_manager")
+
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "flask":
+            raise ModuleNotFoundError("No module named 'flask'")
+        return original_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=fake_import):
+        return importlib.import_module("core.container_manager")
 
 
 class FakeSkillLoader:
@@ -28,7 +45,13 @@ class FakeOrchestrator:
 
 
 class ContainerManagerTests(unittest.TestCase):
+    def test_container_manager_imports_without_flask_installed(self):
+        container_manager = _load_container_manager(missing_flask=True)
+
+        self.assertTrue(hasattr(container_manager, "ContainerManager"))
+
     def test_set_env_var_writes_repo_root_env(self):
+        ContainerManager = _load_container_manager().ContainerManager
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             env_path = repo_root / ".env"
@@ -47,6 +70,7 @@ class ContainerManagerTests(unittest.TestCase):
             self.assertEqual(manager._orchestrator.reload_count, 1)
 
     def test_set_env_var_rejects_unavailable_key(self):
+        ContainerManager = _load_container_manager().ContainerManager
         manager = ContainerManager()
         manager._orchestrator = FakeOrchestrator({"HOMEBRIDGE_USERNAME"})
 
@@ -55,6 +79,8 @@ class ContainerManagerTests(unittest.TestCase):
         self.assertIn("not required by any unavailable skill", result)
 
     def test_verify_docker_reports_permission_denied(self):
+        container_manager = _load_container_manager()
+        ContainerManager = container_manager.ContainerManager
         manager = ContainerManager()
 
         class Result:
@@ -71,9 +97,11 @@ class ContainerManagerTests(unittest.TestCase):
         )
 
     def test_open_dashboard_includes_default_hazards_in_dashboard_config(self):
+        container_manager = _load_container_manager()
+        ContainerManager = container_manager.ContainerManager
+        dashboard_defaults = importlib.import_module("containers.dashboard.dashboard_defaults")
         manager = ContainerManager()
         manager.docker_available = True
-        dashboard_app = _load_dashboard_app()
 
         class Result:
             returncode = 0
@@ -132,7 +160,7 @@ class ContainerManagerTests(unittest.TestCase):
         dashboard_cfg = json.loads(cfg_arg.split("=", 1)[1])
 
         self.assertIn("hazards", dashboard_cfg)
-        self.assertEqual(dashboard_cfg["hazards"], _default_hazard_config(dashboard_app, enabled=True))
+        self.assertEqual(dashboard_cfg["hazards"], dashboard_defaults.default_hazard_config(enabled=True))
 
 
 if __name__ == "__main__":
