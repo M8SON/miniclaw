@@ -65,6 +65,7 @@ def normalize_event(
         is_open=is_open,
         focus_location=focus_location,
         coordinates=coordinates,
+        magnitude_bonus=_magnitude_bonus(event),
         now_ts=now_ts,
     )
 
@@ -121,6 +122,7 @@ def _score_event(
     is_open: bool,
     focus_location: dict[str, Any] | None,
     coordinates: Any,
+    magnitude_bonus: int,
     now_ts: float | None,
 ) -> int:
     score = CATEGORY_BASE_SCORES.get(category_id, 40)
@@ -138,6 +140,8 @@ def _score_event(
 
     if _is_locally_relevant(focus_location, coordinates):
         score += 8
+
+    score += magnitude_bonus
 
     return int(score)
 
@@ -179,10 +183,35 @@ def _region_label(
 
 
 def _magnitude_label(category_label: str, event: dict[str, Any]) -> str:
+    value = _magnitude_value(event)
+    unit = _magnitude_unit(event)
+    description = _magnitude_description(event)
+
+    parts: list[str] = []
+    if unit and value:
+        parts.append(f"{unit} {value}")
+    elif value:
+        parts.append(value)
+    elif unit:
+        parts.append(unit)
+
+    if description:
+        parts.append(description)
+
+    if parts:
+        return " - ".join(parts)
+
     title = str(event.get("title", "") or "").strip()
     if title:
         return title
     return f"Active {category_label.lower()}"
+
+
+def _magnitude_bonus(event: dict[str, Any]) -> int:
+    value = _magnitude_numeric_value(event)
+    if value is None:
+        return 0
+    return min(20, max(2, int(round(value * 3))))
 
 
 def _humanize_category(category_id: str) -> str:
@@ -218,6 +247,53 @@ def _first_or_default(values: Any, default: dict[str, Any]) -> dict[str, Any]:
         if isinstance(first, dict):
             return first
     return default
+
+
+def _magnitude_value(event: dict[str, Any]) -> str:
+    value = event.get("magnitudeValue")
+    if value is None:
+        magnitude = event.get("magnitude")
+        if isinstance(magnitude, dict):
+            value = magnitude.get("value")
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _magnitude_unit(event: dict[str, Any]) -> str:
+    unit = event.get("magnitudeUnit")
+    if unit is None:
+        magnitude = event.get("magnitude")
+        if isinstance(magnitude, dict):
+            unit = magnitude.get("unit")
+    if unit is None:
+        return ""
+    return str(unit).strip()
+
+
+def _magnitude_description(event: dict[str, Any]) -> str:
+    description = event.get("magnitudeDescription")
+    if description is None:
+        description = event.get("description")
+    if description is None:
+        magnitude = event.get("magnitude")
+        if isinstance(magnitude, dict):
+            description = magnitude.get("description")
+    if description is None:
+        return ""
+    return str(description).strip()
+
+
+def _magnitude_numeric_value(event: dict[str, Any]) -> float | None:
+    raw = event.get("magnitudeValue")
+    if raw is None:
+        magnitude = event.get("magnitude")
+        if isinstance(magnitude, dict):
+            raw = magnitude.get("value")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _valid_coordinates(coordinates: Any) -> bool:

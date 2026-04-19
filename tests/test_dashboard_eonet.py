@@ -76,6 +76,96 @@ SEVERE_STORM = {
     ],
 }
 
+HIGH_MAG_EARTHQUAKE = {
+    "id": "EONET_5",
+    "title": "Earthquake near the coast",
+    "closed": None,
+    "magnitudeValue": 6.7,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "strong earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-high"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+LOW_MAG_EARTHQUAKE = {
+    "id": "EONET_6",
+    "title": "Earthquake near the coast",
+    "closed": None,
+    "magnitudeValue": 3.1,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "small earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-low"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+RECENT_OPEN_EARTHQUAKE = {
+    "id": "EONET_7",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": 4.2,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "moderate earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-open"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+RECENT_CLOSED_EARTHQUAKE = {
+    "id": "EONET_8",
+    "title": "Earthquake timing check",
+    "closed": "2026-04-19T13:00:00Z",
+    "magnitudeValue": 4.2,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "moderate earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-closed"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+STALE_OPEN_EARTHQUAKE = {
+    "id": "EONET_9",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": 4.2,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "moderate earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-stale"}],
+    "geometry": [
+        {
+            "date": "2026-04-16T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
 
 class DashboardEONETTests(unittest.TestCase):
     @patch("containers.dashboard.eonet.requests.get")
@@ -127,6 +217,43 @@ class DashboardEONETTests(unittest.TestCase):
         self.assertIn("score", item)
         self.assertIn("region_label", item)
         self.assertIn("magnitude_label", item)
+
+    def test_normalize_event_extracts_magnitude_fields_into_label(self):
+        item = normalize_event(HIGH_MAG_EARTHQUAKE)
+
+        self.assertIn("6.7", item["magnitude_label"])
+        self.assertIn("M", item["magnitude_label"])
+        self.assertIn("strong earthquake", item["magnitude_label"])
+
+    def test_build_priority_hazards_orders_open_event_ahead_of_closed_event(self):
+        ranked = build_priority_hazards(
+            [RECENT_CLOSED_EARTHQUAKE, RECENT_OPEN_EARTHQUAKE],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual([item["event_id"] for item in ranked], ["EONET_7", "EONET_8"])
+
+    def test_build_priority_hazards_orders_more_recent_event_ahead_of_stale_event(self):
+        ranked = build_priority_hazards(
+            [STALE_OPEN_EARTHQUAKE, RECENT_OPEN_EARTHQUAKE],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual([item["event_id"] for item in ranked], ["EONET_7", "EONET_9"])
+
+    def test_build_priority_hazards_prefers_higher_magnitude_when_other_signals_match(self):
+        ranked = build_priority_hazards(
+            [LOW_MAG_EARTHQUAKE, HIGH_MAG_EARTHQUAKE],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual([item["event_id"] for item in ranked], ["EONET_5", "EONET_6"])
 
     def test_build_priority_hazards_prefers_major_hazard_over_lower_signal_item(self):
         ranked = build_priority_hazards(
