@@ -1,12 +1,18 @@
+import builtins
+import importlib
+import importlib.util
+import sys
 import unittest
 from unittest.mock import patch
 
-from containers.dashboard import app as dashboard_app
 from containers.dashboard.eonet import (
     build_priority_hazards,
     fetch_eonet_events,
     normalize_event,
 )
+
+
+FLASK_AVAILABLE = importlib.util.find_spec("flask") is not None
 
 
 OPEN_WILDFIRE = {
@@ -237,15 +243,46 @@ STALE_OPEN_EARTHQUAKE = {
 }
 
 
+def _load_dashboard_app(*, missing_feedparser: bool = False):
+    sys.modules.pop("containers.dashboard.app", None)
+
+    if not missing_feedparser:
+        return importlib.import_module("containers.dashboard.app")
+
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "feedparser":
+            raise ModuleNotFoundError("No module named 'feedparser'")
+        return original_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=fake_import):
+        return importlib.import_module("containers.dashboard.app")
+
+
+def _default_hazard_config(module, *, enabled: bool = True):
+    if hasattr(module, "default_hazard_config"):
+        return module.default_hazard_config(enabled=enabled)
+
+    cfg = dict(module.DEFAULT_HAZARD_CONFIG)
+    cfg["categories"] = list(cfg.get("categories", []))
+    cfg["enabled"] = enabled
+    return cfg
+
+
 class DashboardEONETTests(unittest.TestCase):
     def tearDown(self):
+        dashboard_app = sys.modules.get("containers.dashboard.app")
+        if dashboard_app is None:
+            return
+
         with dashboard_app._state_lock:
             dashboard_app._state["panels"] = []
             dashboard_app._state["needs_refresh"] = False
             dashboard_app._state["rss_feeds"] = []
             dashboard_app._state["gdelt_queries"] = []
             dashboard_app._state["stock_tickers"] = list(dashboard_app.DEFAULT_STOCK_TICKERS)
-            dashboard_app._state["hazard_config"] = dict(dashboard_app.DEFAULT_HAZARD_CONFIG)
+            dashboard_app._state["hazard_config"] = _default_hazard_config(dashboard_app)
 
     @patch("containers.dashboard.eonet.requests.get")
     def test_fetch_eonet_events_builds_request_params_and_returns_events(self, mock_get):
@@ -399,15 +436,41 @@ class DashboardEONETTests(unittest.TestCase):
 
         self.assertEqual(fetch_eonet_events({"enabled": True}), [])
 
-    @patch("containers.dashboard.app.render_template", return_value="rendered")
-    @patch("containers.dashboard.app.fetch_priority_hazards")
-    @patch("containers.dashboard.app.fetch_news")
-    def test_index_merges_priority_hazards_when_news_panel_is_active(
-        self,
-        mock_fetch_news,
-        mock_fetch_priority_hazards,
-        mock_render_template,
-    ):
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_dashboard_app_imports_without_feedparser_installed(self):
+        dashboard_app = _load_dashboard_app(missing_feedparser=True)
+
+        self.assertFalse(dashboard_app.FEEDPARSER_AVAILABLE)
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_default_hazard_config_overrides_enabled_without_mutating_defaults(self):
+        dashboard_app = _load_dashboard_app()
+
+        disabled = dashboard_app.default_hazard_config(enabled=False)
+
+        self.assertFalse(disabled["enabled"])
+        self.assertTrue(dashboard_app.DEFAULT_HAZARD_CONFIG["enabled"])
+        self.assertEqual(disabled["categories"], dashboard_app.DEFAULT_HAZARD_CONFIG["categories"])
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_refresh_enables_hazards_when_news_panel_is_added(self):
+        dashboard_app = _load_dashboard_app()
+
+        with dashboard_app._state_lock:
+            dashboard_app._state["panels"] = ["weather"]
+            dashboard_app._state["hazard_config"] = _default_hazard_config(dashboard_app, enabled=False)
+
+        with dashboard_app.app.test_request_context("/refresh?panels=news,weather"):
+            dashboard_app.refresh()
+
+        with dashboard_app._state_lock:
+            hazard_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertTrue(hazard_cfg["enabled"])
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_index_merges_priority_hazards_when_news_panel_is_active(self):
+        dashboard_app = _load_dashboard_app()
         hazard_cfg = {
             "enabled": True,
             "limit": 2,
@@ -416,17 +479,18 @@ class DashboardEONETTests(unittest.TestCase):
             "fetch_limit": 12,
             "categories": ["wildfires", "severeStorms"],
         }
-        mock_fetch_news.return_value = [{"text": "headline", "source": "feed", "image_url": ""}]
-        mock_fetch_priority_hazards.return_value = [{"event_id": "EONET_1", "title": "hazard"}]
 
-        with dashboard_app._state_lock:
-            dashboard_app._state["panels"] = ["news", "weather"]
-            dashboard_app._state["rss_feeds"] = ["https://example.invalid/feed"]
-            dashboard_app._state["gdelt_queries"] = ["Burlington"]
-            dashboard_app._state["hazard_config"] = hazard_cfg
+        with patch.object(dashboard_app, "render_template", return_value="rendered") as mock_render_template, \
+             patch.object(dashboard_app, "fetch_priority_hazards", return_value=[{"event_id": "EONET_1", "title": "hazard"}]) as mock_fetch_priority_hazards, \
+             patch.object(dashboard_app, "fetch_news", return_value=[{"text": "headline", "source": "feed", "image_url": ""}]):
+            with dashboard_app._state_lock:
+                dashboard_app._state["panels"] = ["news", "weather"]
+                dashboard_app._state["rss_feeds"] = ["https://example.invalid/feed"]
+                dashboard_app._state["gdelt_queries"] = ["Burlington"]
+                dashboard_app._state["hazard_config"] = hazard_cfg
 
-        with dashboard_app.app.test_request_context("/"):
-            result = dashboard_app.index()
+            with dashboard_app.app.test_request_context("/"):
+                result = dashboard_app.index()
 
         self.assertEqual(result, "rendered")
         mock_fetch_priority_hazards.assert_called_once_with(hazard_cfg)
@@ -444,12 +508,15 @@ class DashboardEONETTests(unittest.TestCase):
         },
         clear=False,
     )
-    @patch("containers.dashboard.app.app.run")
-    def test_main_hydrates_hazard_config_from_dashboard_config(self, mock_run):
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_main_hydrates_hazard_config_from_dashboard_config(self):
+        dashboard_app = _load_dashboard_app()
+
         with dashboard_app._state_lock:
             dashboard_app._state.pop("hazard_config", None)
 
-        dashboard_app.main()
+        with patch.object(dashboard_app.app, "run") as mock_run:
+            dashboard_app.main()
 
         with dashboard_app._state_lock:
             hazard_cfg = dict(dashboard_app._state["hazard_config"])

@@ -16,9 +16,15 @@ import threading
 import calendar
 from datetime import datetime, timezone
 
-import feedparser
 import requests
 from flask import Flask, render_template, request, jsonify
+
+try:
+    import feedparser
+    FEEDPARSER_AVAILABLE = True
+except ImportError:
+    feedparser = None
+    FEEDPARSER_AVAILABLE = False
 
 try:
     from .eonet import build_priority_hazards, fetch_eonet_events
@@ -35,23 +41,30 @@ except ImportError:
 app = Flask(__name__)
 
 DEFAULT_STOCK_TICKERS = ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"]
-DEFAULT_HAZARD_CONFIG = {
-    "enabled": True,
-    "limit": 3,
-    "min_score": 40,
-    "days": 14,
-    "fetch_limit": 20,
-    "categories": [
-        "wildfires",
-        "severeStorms",
-        "volcanoes",
-        "floods",
-        "earthquakes",
-        "landslides",
-        "extremeTemperatures",
-        "dustHaze",
-    ],
-}
+DEFAULT_HAZARD_CATEGORIES = [
+    "wildfires",
+    "severeStorms",
+    "volcanoes",
+    "floods",
+    "earthquakes",
+    "landslides",
+    "extremeTemperatures",
+    "dustHaze",
+]
+
+
+def default_hazard_config(enabled: bool = True) -> dict:
+    return {
+        "enabled": enabled,
+        "limit": 3,
+        "min_score": 40,
+        "days": 14,
+        "fetch_limit": 20,
+        "categories": list(DEFAULT_HAZARD_CATEGORIES),
+    }
+
+
+DEFAULT_HAZARD_CONFIG = default_hazard_config()
 
 _state_lock = threading.Lock()
 _state = {
@@ -188,6 +201,9 @@ def _focus_location() -> dict | None:
 
 def fetch_rss(feeds: list) -> list:
     """Fetch headlines + images from RSS/Atom feeds."""
+    if not FEEDPARSER_AVAILABLE:
+        return []
+
     items = []
     for feed_url in feeds:
         try:
@@ -416,6 +432,13 @@ def refresh():
     with _state_lock:
         if panels_str:
             _state["panels"] = [p.strip() for p in panels_str.split(",") if p.strip()]
+            enabled = "news" in _state["panels"]
+            current_hazard_cfg = _state.get("hazard_config", DEFAULT_HAZARD_CONFIG)
+            merged_hazard_cfg = dict(default_hazard_config(enabled=enabled))
+            merged_hazard_cfg.update(current_hazard_cfg)
+            merged_hazard_cfg["categories"] = list(merged_hazard_cfg.get("categories", DEFAULT_HAZARD_CATEGORIES))
+            merged_hazard_cfg["enabled"] = enabled
+            _state["hazard_config"] = merged_hazard_cfg
         if gdelt_str:
             _state["gdelt_queries"] = [q.strip() for q in gdelt_str.split("|") if q.strip()]
             # Topic-specific update: clear RSS so only on-topic GDELT results show.
@@ -440,7 +463,7 @@ def index():
         rss_feeds = list(_state["rss_feeds"])
         gdelt_queries = list(_state["gdelt_queries"])
         stock_tickers = list(_state["stock_tickers"])
-        hazard_config = dict(_state.get("hazard_config", DEFAULT_HAZARD_CONFIG))
+        hazard_config = dict(_state.get("hazard_config", default_hazard_config()))
 
     data = {}
     if "news" in panels:
@@ -478,7 +501,10 @@ def main():
         _state["rss_feeds"] = cfg.get("rss_feeds", DEFAULT_RSS_FEEDS)
         _state["gdelt_queries"] = cfg.get("gdelt_queries", DEFAULT_GDELT_QUERIES)
         _state["stock_tickers"] = cfg.get("stock_tickers", list(DEFAULT_STOCK_TICKERS))
-        _state["hazard_config"] = cfg.get("hazards", dict(DEFAULT_HAZARD_CONFIG))
+        hazard_cfg = dict(default_hazard_config(enabled="news" in _state["panels"]))
+        hazard_cfg.update(cfg.get("hazards", {}))
+        hazard_cfg["categories"] = list(hazard_cfg.get("categories", DEFAULT_HAZARD_CATEGORIES))
+        _state["hazard_config"] = hazard_cfg
 
     app.run(host="0.0.0.0", port=7860, debug=False, threaded=True)
 

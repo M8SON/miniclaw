@@ -22,6 +22,7 @@ import urllib.parse
 from datetime import date
 from pathlib import Path
 
+from containers.dashboard.app import default_hazard_config
 from core.mempalace_bridge import MemPalaceBridge
 
 logger = logging.getLogger(__name__)
@@ -459,23 +460,7 @@ class ContainerManager:
             "rss_feeds": rss_feeds,
             "gdelt_queries": queries,
             "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
-            "hazards": {
-                "enabled": "news" in panels,
-                "limit": 3,
-                "min_score": 40,
-                "days": 14,
-                "fetch_limit": 20,
-                "categories": [
-                    "wildfires",
-                    "severeStorms",
-                    "volcanoes",
-                    "floods",
-                    "earthquakes",
-                    "landslides",
-                    "extremeTemperatures",
-                    "dustHaze",
-                ],
-            },
+            "hazards": default_hazard_config(enabled="news" in panels),
         })
         weather_loc = location.strip() or os.environ.get("WEATHER_LOCATION", "New York,NY")
 

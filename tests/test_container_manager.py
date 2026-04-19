@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.test_dashboard_eonet import _default_hazard_config, _load_dashboard_app
 from core.container_manager import ContainerManager
 
 
@@ -72,6 +73,7 @@ class ContainerManagerTests(unittest.TestCase):
     def test_open_dashboard_includes_default_hazards_in_dashboard_config(self):
         manager = ContainerManager()
         manager.docker_available = True
+        dashboard_app = _load_dashboard_app()
 
         class Result:
             returncode = 0
@@ -130,26 +132,7 @@ class ContainerManagerTests(unittest.TestCase):
         dashboard_cfg = json.loads(cfg_arg.split("=", 1)[1])
 
         self.assertIn("hazards", dashboard_cfg)
-        self.assertEqual(
-            dashboard_cfg["hazards"],
-            {
-                "enabled": True,
-                "limit": 3,
-                "min_score": 40,
-                "days": 14,
-                "fetch_limit": 20,
-                "categories": [
-                    "wildfires",
-                    "severeStorms",
-                    "volcanoes",
-                    "floods",
-                    "earthquakes",
-                    "landslides",
-                    "extremeTemperatures",
-                    "dustHaze",
-                ],
-            },
-        )
+        self.assertEqual(dashboard_cfg["hazards"], _default_hazard_config(dashboard_app, enabled=True))
 
 
 if __name__ == "__main__":
