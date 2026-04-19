@@ -78,6 +78,38 @@ SEVERE_STORM = {
 
 
 class DashboardEONETTests(unittest.TestCase):
+    @patch("containers.dashboard.eonet.requests.get")
+    def test_fetch_eonet_events_builds_request_params_and_returns_events(self, mock_get):
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"events": [OPEN_WILDFIRE]}
+
+        mock_get.return_value = Response()
+
+        result = fetch_eonet_events(
+            {
+                "enabled": True,
+                "fetch_limit": 7,
+                "days": 5,
+                "categories": ["wildfires", "severeStorms"],
+            }
+        )
+
+        self.assertEqual(result, [OPEN_WILDFIRE])
+        mock_get.assert_called_once_with(
+            "https://eonet.gsfc.nasa.gov/api/v3/events",
+            params={
+                "status": "open",
+                "limit": 7,
+                "days": 5,
+                "category": "wildfires,severeStorms",
+            },
+            timeout=10,
+        )
+
     def test_normalize_event_extracts_dashboard_fields(self):
         item = normalize_event(
             OPEN_WILDFIRE,
