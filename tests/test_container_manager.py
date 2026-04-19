@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 def _load_container_manager(*, missing_flask: bool = False):
     sys.modules.pop("core.container_manager", None)
+    sys.modules.pop("containers.dashboard.app", None)
+    sys.modules.pop("containers.dashboard.dashboard_defaults", None)
 
     if not missing_flask:
         return importlib.import_module("core.container_manager")
@@ -49,6 +51,17 @@ class ContainerManagerTests(unittest.TestCase):
         container_manager = _load_container_manager(missing_flask=True)
 
         self.assertTrue(hasattr(container_manager, "ContainerManager"))
+
+    def test_container_manager_import_guard_ignores_cached_dashboard_app_module(self):
+        sentinel = object()
+        sys.modules["containers.dashboard.app"] = sentinel
+        sys.modules["containers.dashboard.dashboard_defaults"] = sentinel
+
+        container_manager = _load_container_manager(missing_flask=True)
+
+        self.assertTrue(hasattr(container_manager, "ContainerManager"))
+        self.assertIsNot(sys.modules.get("containers.dashboard.app"), sentinel)
+        self.assertIsNot(sys.modules.get("containers.dashboard.dashboard_defaults"), sentinel)
 
     def test_set_env_var_writes_repo_root_env(self):
         ContainerManager = _load_container_manager().ContainerManager

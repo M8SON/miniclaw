@@ -534,6 +534,46 @@ class DashboardEONETTests(unittest.TestCase):
         )
         mock_run.assert_called_once()
 
+    @patch.dict(
+        "os.environ",
+        {
+            "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+            "DASHBOARD_CONFIG": "{\"hazards\": \"invalid\"}",
+        },
+        clear=False,
+    )
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_main_hardens_malformed_hazard_config_and_splits_string_categories(self):
+        dashboard_app = _load_dashboard_app()
+
+        with patch.object(dashboard_app.app, "run"):
+            dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            invalid_hazard_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertEqual(
+            invalid_hazard_cfg,
+            dashboard_app.default_hazard_config(enabled=True),
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+                "DASHBOARD_CONFIG": "{\"hazards\": {\"categories\": \"wildfires,severeStorms\"}}",
+            },
+            clear=False,
+        ):
+            with patch.object(dashboard_app.app, "run") as mock_run:
+                dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            string_category_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertEqual(string_category_cfg["categories"], ["wildfires", "severeStorms"])
+        mock_run.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -295,6 +295,26 @@ def fetch_priority_hazards(hazard_cfg: dict) -> list:
     return build_priority_hazards(raw_events, hazard_cfg, focus_location)
 
 
+def _normalize_hazard_config(raw_hazards, *, enabled: bool) -> dict:
+    hazard_cfg = dict(default_hazard_config(enabled=enabled))
+    if isinstance(raw_hazards, dict):
+        hazard_cfg.update(raw_hazards)
+
+    categories = hazard_cfg.get("categories", DEFAULT_HAZARD_CATEGORIES)
+    if isinstance(categories, str):
+        categories = [item.strip() for item in categories.split(",") if item.strip()]
+    elif isinstance(categories, (list, tuple, set)):
+        categories = [str(item).strip() for item in categories if str(item).strip()]
+    else:
+        categories = list(DEFAULT_HAZARD_CATEGORIES)
+
+    hazard_cfg["enabled"] = enabled if raw_hazards is None or not isinstance(raw_hazards, dict) else bool(
+        hazard_cfg.get("enabled", enabled)
+    )
+    hazard_cfg["categories"] = categories or list(DEFAULT_HAZARD_CATEGORIES)
+    return hazard_cfg
+
+
 def fetch_weather() -> dict:
     """Fetch current weather from open-meteo (free, no API key)."""
     location = os.environ.get("WEATHER_LOCATION", "New York,NY")
@@ -490,10 +510,10 @@ def main():
         _state["rss_feeds"] = cfg.get("rss_feeds", DEFAULT_RSS_FEEDS)
         _state["gdelt_queries"] = cfg.get("gdelt_queries", DEFAULT_GDELT_QUERIES)
         _state["stock_tickers"] = cfg.get("stock_tickers", list(DEFAULT_STOCK_TICKERS))
-        hazard_cfg = dict(default_hazard_config(enabled="news" in _state["panels"]))
-        hazard_cfg.update(cfg.get("hazards", {}))
-        hazard_cfg["categories"] = list(hazard_cfg.get("categories", DEFAULT_HAZARD_CATEGORIES))
-        _state["hazard_config"] = hazard_cfg
+        _state["hazard_config"] = _normalize_hazard_config(
+            cfg.get("hazards"),
+            enabled="news" in _state["panels"],
+        )
 
     app.run(host="0.0.0.0", port=7860, debug=False, threaded=True)
 
