@@ -459,6 +459,23 @@ class ContainerManager:
             "rss_feeds": rss_feeds,
             "gdelt_queries": queries,
             "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
+            "hazards": {
+                "enabled": "news" in panels,
+                "limit": 3,
+                "min_score": 40,
+                "days": 14,
+                "fetch_limit": 20,
+                "categories": [
+                    "wildfires",
+                    "severeStorms",
+                    "volcanoes",
+                    "floods",
+                    "earthquakes",
+                    "landslides",
+                    "extremeTemperatures",
+                    "dustHaze",
+                ],
+            },
         })
         weather_loc = location.strip() or os.environ.get("WEATHER_LOCATION", "New York,NY")
 

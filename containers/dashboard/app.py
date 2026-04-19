@@ -21,6 +21,11 @@ import requests
 from flask import Flask, render_template, request, jsonify
 
 try:
+    from .eonet import build_priority_hazards, fetch_eonet_events
+except ImportError:
+    from eonet import build_priority_hazards, fetch_eonet_events
+
+try:
     import yfinance as yf
     YFINANCE_AVAILABLE = True
 except ImportError:
@@ -29,13 +34,33 @@ except ImportError:
 
 app = Flask(__name__)
 
+DEFAULT_STOCK_TICKERS = ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"]
+DEFAULT_HAZARD_CONFIG = {
+    "enabled": True,
+    "limit": 3,
+    "min_score": 40,
+    "days": 14,
+    "fetch_limit": 20,
+    "categories": [
+        "wildfires",
+        "severeStorms",
+        "volcanoes",
+        "floods",
+        "earthquakes",
+        "landslides",
+        "extremeTemperatures",
+        "dustHaze",
+    ],
+}
+
 _state_lock = threading.Lock()
 _state = {
     "panels": [],
     "needs_refresh": False,
     "rss_feeds": [],
     "gdelt_queries": [],
-    "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
+    "stock_tickers": list(DEFAULT_STOCK_TICKERS),
+    "hazard_config": dict(DEFAULT_HAZARD_CONFIG),
 }
 
 DEFAULT_RSS_FEEDS = [
@@ -125,6 +150,36 @@ def _gdelt_timestamp(article: dict) -> float:
         except ValueError:
             continue
     return 0.0
+
+
+def _focus_location() -> dict | None:
+    location = os.environ.get("WEATHER_LOCATION", "").strip()
+    if not location:
+        return None
+
+    city = location.split(",")[0].strip()
+    if not city:
+        return None
+
+    try:
+        geo_resp = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1},
+            timeout=10,
+        )
+        geo_resp.raise_for_status()
+        results = geo_resp.json().get("results", [])
+        if not results:
+            return None
+
+        place = results[0]
+        return {
+            "name": place.get("name", city),
+            "lat": place["latitude"],
+            "lon": place["longitude"],
+        }
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +282,12 @@ def fetch_news(rss_feeds: list, gdelt_queries: list) -> list:
             }
         )
     return cleaned
+
+
+def fetch_priority_hazards(hazard_cfg: dict) -> list:
+    focus_location = _focus_location()
+    raw_events = fetch_eonet_events(hazard_cfg)
+    return build_priority_hazards(raw_events, hazard_cfg, focus_location)
 
 
 def fetch_weather() -> dict:
@@ -379,9 +440,11 @@ def index():
         rss_feeds = list(_state["rss_feeds"])
         gdelt_queries = list(_state["gdelt_queries"])
         stock_tickers = list(_state["stock_tickers"])
+        hazard_config = dict(_state.get("hazard_config", DEFAULT_HAZARD_CONFIG))
 
     data = {}
     if "news" in panels:
+        data["priority_hazards"] = fetch_priority_hazards(hazard_config)
         data["news"] = fetch_news(rss_feeds, gdelt_queries)
     if "weather" in panels:
         data["weather"] = fetch_weather()
@@ -414,7 +477,8 @@ def main():
         _state["panels"] = inp.get("panels", ["news", "weather", "stocks", "music"])
         _state["rss_feeds"] = cfg.get("rss_feeds", DEFAULT_RSS_FEEDS)
         _state["gdelt_queries"] = cfg.get("gdelt_queries", DEFAULT_GDELT_QUERIES)
-        _state["stock_tickers"] = cfg.get("stock_tickers", ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"])
+        _state["stock_tickers"] = cfg.get("stock_tickers", list(DEFAULT_STOCK_TICKERS))
+        _state["hazard_config"] = cfg.get("hazards", dict(DEFAULT_HAZARD_CONFIG))
 
     app.run(host="0.0.0.0", port=7860, debug=False, threaded=True)
 

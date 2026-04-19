@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from containers.dashboard import app as dashboard_app
 from containers.dashboard.eonet import (
     build_priority_hazards,
     fetch_eonet_events,
@@ -237,6 +238,15 @@ STALE_OPEN_EARTHQUAKE = {
 
 
 class DashboardEONETTests(unittest.TestCase):
+    def tearDown(self):
+        with dashboard_app._state_lock:
+            dashboard_app._state["panels"] = []
+            dashboard_app._state["needs_refresh"] = False
+            dashboard_app._state["rss_feeds"] = []
+            dashboard_app._state["gdelt_queries"] = []
+            dashboard_app._state["stock_tickers"] = list(dashboard_app.DEFAULT_STOCK_TICKERS)
+            dashboard_app._state["hazard_config"] = dict(dashboard_app.DEFAULT_HAZARD_CONFIG)
+
     @patch("containers.dashboard.eonet.requests.get")
     def test_fetch_eonet_events_builds_request_params_and_returns_events(self, mock_get):
         class Response:
@@ -388,6 +398,74 @@ class DashboardEONETTests(unittest.TestCase):
         mock_get.side_effect = RuntimeError("boom")
 
         self.assertEqual(fetch_eonet_events({"enabled": True}), [])
+
+    @patch("containers.dashboard.app.render_template", return_value="rendered")
+    @patch("containers.dashboard.app.fetch_priority_hazards")
+    @patch("containers.dashboard.app.fetch_news")
+    def test_index_merges_priority_hazards_when_news_panel_is_active(
+        self,
+        mock_fetch_news,
+        mock_fetch_priority_hazards,
+        mock_render_template,
+    ):
+        hazard_cfg = {
+            "enabled": True,
+            "limit": 2,
+            "min_score": 40,
+            "days": 14,
+            "fetch_limit": 12,
+            "categories": ["wildfires", "severeStorms"],
+        }
+        mock_fetch_news.return_value = [{"text": "headline", "source": "feed", "image_url": ""}]
+        mock_fetch_priority_hazards.return_value = [{"event_id": "EONET_1", "title": "hazard"}]
+
+        with dashboard_app._state_lock:
+            dashboard_app._state["panels"] = ["news", "weather"]
+            dashboard_app._state["rss_feeds"] = ["https://example.invalid/feed"]
+            dashboard_app._state["gdelt_queries"] = ["Burlington"]
+            dashboard_app._state["hazard_config"] = hazard_cfg
+
+        with dashboard_app.app.test_request_context("/"):
+            result = dashboard_app.index()
+
+        self.assertEqual(result, "rendered")
+        mock_fetch_priority_hazards.assert_called_once_with(hazard_cfg)
+        rendered_data = mock_render_template.call_args.kwargs["data"]
+        self.assertEqual(rendered_data["priority_hazards"], [{"event_id": "EONET_1", "title": "hazard"}])
+
+    @patch.dict(
+        "os.environ",
+        {
+            "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+            "DASHBOARD_CONFIG": (
+                "{\"hazards\": {\"enabled\": true, \"limit\": 4, \"min_score\": 55, "
+                "\"days\": 10, \"fetch_limit\": 15, \"categories\": [\"wildfires\"]}}"
+            ),
+        },
+        clear=False,
+    )
+    @patch("containers.dashboard.app.app.run")
+    def test_main_hydrates_hazard_config_from_dashboard_config(self, mock_run):
+        with dashboard_app._state_lock:
+            dashboard_app._state.pop("hazard_config", None)
+
+        dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            hazard_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertEqual(
+            hazard_cfg,
+            {
+                "enabled": True,
+                "limit": 4,
+                "min_score": 55,
+                "days": 10,
+                "fetch_limit": 15,
+                "categories": ["wildfires"],
+            },
+        )
+        mock_run.assert_called_once()
 
 
 if __name__ == "__main__":
