@@ -112,6 +112,60 @@ LOW_MAG_EARTHQUAKE = {
     ],
 }
 
+ZERO_MAG_EARTHQUAKE = {
+    "id": "EONET_10",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": 0,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "tiny earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-zero"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+NEGATIVE_MAG_EARTHQUAKE = {
+    "id": "EONET_11",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": -1.0,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "bad reading",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-negative"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+MALFORMED_MAG_EARTHQUAKE = {
+    "id": "EONET_12",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": "unknown",
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "unknown reading",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-malformed"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
 RECENT_OPEN_EARTHQUAKE = {
     "id": "EONET_7",
     "title": "Earthquake timing check",
@@ -121,6 +175,21 @@ RECENT_OPEN_EARTHQUAKE = {
     "magnitudeDescription": "moderate earthquake",
     "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
     "sources": [{"id": "USGS", "url": "https://example.invalid/quake-open"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+NO_MAG_EARTHQUAKE = {
+    "id": "EONET_13",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-none"}],
     "geometry": [
         {
             "date": "2026-04-19T12:00:00Z",
@@ -254,6 +323,17 @@ class DashboardEONETTests(unittest.TestCase):
         )
 
         self.assertEqual([item["event_id"] for item in ranked], ["EONET_5", "EONET_6"])
+
+    def test_zero_negative_and_malformed_magnitude_do_not_gain_bonus(self):
+        baseline = normalize_event(NO_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
+
+        zero_score = normalize_event(ZERO_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
+        negative_score = normalize_event(NEGATIVE_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
+        malformed_score = normalize_event(MALFORMED_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
+
+        self.assertEqual(zero_score, baseline)
+        self.assertEqual(negative_score, baseline)
+        self.assertEqual(malformed_score, baseline)
 
     def test_build_priority_hazards_prefers_major_hazard_over_lower_signal_item(self):
         ranked = build_priority_hazards(

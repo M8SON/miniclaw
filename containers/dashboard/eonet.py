@@ -209,7 +209,7 @@ def _magnitude_label(category_label: str, event: dict[str, Any]) -> str:
 
 def _magnitude_bonus(event: dict[str, Any]) -> int:
     value = _magnitude_numeric_value(event)
-    if value is None:
+    if value is None or value <= 0:
         return 0
     return min(20, max(2, int(round(value * 3))))
 
