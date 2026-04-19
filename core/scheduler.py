@@ -9,8 +9,6 @@ Fires are enqueued onto Orchestrator.scheduled_fire_queue and processed
 between voice turns so they never interrupt an active conversation.
 """
 
-from __future__ import annotations
-
 import logging
 import secrets
 import threading
@@ -37,6 +35,22 @@ def _new_id() -> str:
     return "sch_" + secrets.token_hex(2)  # 4 hex chars
 
 
+def _validate(*, cron: str, prompt: str, delivery: str) -> tuple[str, str]:
+    cron = (cron or "").strip()
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise ScheduleValidationError("prompt must be non-empty")
+    if delivery not in DELIVERY_MODES:
+        raise ScheduleValidationError(
+            f"delivery must be one of {DELIVERY_MODES}, got {delivery!r}"
+        )
+    try:
+        croniter(cron)
+    except (CroniterBadCronError, ValueError) as exc:
+        raise ScheduleValidationError(f"invalid cron expression: {cron!r} ({exc})")
+    return cron, prompt
+
+
 @dataclass
 class ScheduleEntry:
     id: str
@@ -55,21 +69,10 @@ class ScheduleEntry:
         cron: str,
         prompt: str,
         delivery: str,
-        label: str | None = None,
+        label: Optional[str] = None,
     ) -> "ScheduleEntry":
-        cron = (cron or "").strip()
-        prompt = (prompt or "").strip()
+        cron, prompt = _validate(cron=cron, prompt=prompt, delivery=delivery)
         label = label.strip() if label else None
-        if not prompt:
-            raise ScheduleValidationError("prompt must be non-empty")
-        if delivery not in DELIVERY_MODES:
-            raise ScheduleValidationError(
-                f"delivery must be one of {DELIVERY_MODES}, got {delivery!r}"
-            )
-        try:
-            croniter(cron)
-        except (CroniterBadCronError, ValueError) as exc:
-            raise ScheduleValidationError(f"invalid cron expression: {cron!r} ({exc})")
         return cls(
             id=_new_id(),
             cron=cron,
@@ -100,10 +103,21 @@ class ScheduleEntry:
                 return value
             return datetime.fromisoformat(value)
 
-        return cls(
-            id=data["id"],
+        required_keys = ("id", "cron", "prompt", "delivery", "created")
+        for key in required_keys:
+            if key not in data:
+                raise ScheduleValidationError(f"missing required field: {key!r}")
+
+        cron, prompt = _validate(
             cron=data["cron"],
             prompt=data["prompt"],
+            delivery=data["delivery"],
+        )
+
+        return cls(
+            id=data["id"],
+            cron=cron,
+            prompt=prompt,
             delivery=data["delivery"],
             label=data.get("label"),
             created=_dt(data["created"]),

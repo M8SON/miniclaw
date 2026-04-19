@@ -54,3 +54,19 @@ class ScheduleEntryTests(unittest.TestCase):
         self.assertEqual(restored.delivery, entry.delivery)
         self.assertEqual(restored.label, entry.label)
         self.assertEqual(restored.created, entry.created)
+
+    def test_from_dict_rejects_invalid_delivery(self):
+        valid = ScheduleEntry.new(
+            cron="0 8 * * *", prompt="p", delivery="immediate"
+        ).to_dict()
+        valid["delivery"] = "bogus"
+        with self.assertRaises(ScheduleValidationError):
+            ScheduleEntry.from_dict(valid)
+
+    def test_from_dict_raises_for_missing_key(self):
+        valid = ScheduleEntry.new(
+            cron="0 8 * * *", prompt="p", delivery="immediate"
+        ).to_dict()
+        del valid["cron"]
+        with self.assertRaises(ScheduleValidationError):
+            ScheduleEntry.from_dict(valid)
