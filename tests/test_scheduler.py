@@ -379,3 +379,14 @@ class HotReloadTests(unittest.TestCase):
         finally:
             thread.stop()
             thread.join(timeout=2.0)
+
+
+class ScheduleSkillLoadsTests(unittest.TestCase):
+    def test_skill_loader_picks_up_schedule(self):
+        from core.skill_loader import SkillLoader
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parent.parent
+        loader = SkillLoader(search_paths=[repo_root / "skills"])
+        skills = loader.load_all()
+        self.assertIn("schedule", skills)
