@@ -497,6 +497,53 @@ class DashboardEONETTests(unittest.TestCase):
         rendered_data = mock_render_template.call_args.kwargs["data"]
         self.assertEqual(rendered_data["priority_hazards"], [{"event_id": "EONET_1", "title": "hazard"}])
 
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_dashboard_template_renders_priority_hazards_before_news_cards(self):
+        dashboard_app = _load_dashboard_app()
+        data = {
+            "priority_hazards": [
+                {
+                    "event_id": "EONET_1",
+                    "category": "wildfires",
+                    "category_label": "Wildfires",
+                    "region_label": "Vermont",
+                    "source_label": "InciWeb",
+                    "title": "Large wildfire near population center",
+                    "magnitude_label": "6.7 M strong earthquake",
+                }
+            ],
+            "news": [
+                {
+                    "source": "Newswire",
+                    "text": "Headline one",
+                    "image_url": "",
+                },
+                {
+                    "source": "Newswire",
+                    "text": "Headline two",
+                    "image_url": "",
+                },
+            ],
+        }
+
+        with dashboard_app.app.test_request_context("/"):
+            rendered = dashboard_app.render_template(
+                "dashboard.html",
+                panels=["news"],
+                data=data,
+            )
+
+        self.assertIn("Priority hazards", rendered)
+        self.assertIn("Wildfires", rendered)
+        self.assertIn("Vermont", rendered)
+        self.assertIn("InciWeb", rendered)
+        self.assertIn("Large wildfire near population center", rendered)
+        self.assertIn("6.7 M strong earthquake", rendered)
+        self.assertLess(
+            rendered.index("Priority hazards"),
+            rendered.index("Headline one"),
+        )
+
     @patch.dict(
         "os.environ",
         {
