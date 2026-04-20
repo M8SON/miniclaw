@@ -181,6 +181,7 @@ class ScheduleNativeHandlerTests(unittest.TestCase):
         from core.scheduler import SchedulesStore
         self._tmp = tempfile.TemporaryDirectory()
         self.store = SchedulesStore(Path(self._tmp.name) / "schedules.yaml")
+        ContainerManager = _load_container_manager().ContainerManager
         self.manager = ContainerManager()
         self.manager._schedules_store = self.store
 
