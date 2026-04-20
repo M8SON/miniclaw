@@ -83,6 +83,15 @@ Update this file when durable project context changes. Do not create overlapping
 - Validate the current tiered architecture on real Pi hardware before adding more routing complexity.
 - Focus next on behavioral polish: real-world memory quality, voice flow smoothness, and routine-command reliability.
 
+## Hermes-Inspired Enhancement Roadmap
+
+Four enhancements inspired by the Hermes project. `schedule` skill (#1) shipped 2026-04-19.
+
+1. ~~Cron/schedule skill — yaml-backed recurring tasks that fire natural-language prompts through the orchestrator.~~ Done 2026-04-19.
+2. FTS5 session archive — persist past conversations to a sqlite FTS5 index so Claude can recall prior sessions by content search.
+3. agentskills.io compat — align skill loader / manifest format with the agentskills.io registry so community skills are drop-in installable.
+4. Self-improving skills — let skills record their own usage outcomes and refine their SKILL.md routing hints over time.
+
 ## Editing Rules
 
 - Keep this file short.
