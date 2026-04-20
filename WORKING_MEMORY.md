@@ -30,6 +30,8 @@ Update this file when durable project context changes. Do not create overlapping
 - If Ollama runs tools and then cannot finish the turn, MiniClaw now commits that tool activity into `ConversationState` and asks Claude to finalize the response without re-running the tools.
 - Native handlers are a first-class execution path alongside Docker, not just a temporary exception.
 - Memory policy is intentionally proactive: save durable, useful long-term facts even without an explicit "remember this" request; avoid trivial or one-turn context.
+- Weather location is no longer an env-backed source of truth in the host runtime.
+  Resolve location from explicit request override, then remembered memory (`topic: location`), then dashboard-only fallback.
 
 ## Skill Split
 
@@ -39,11 +41,13 @@ Update this file when durable project context changes. Do not create overlapping
 ## Current State
 
 - CI is configured and passing on `main`.
+- GitHub Actions CI on `main` now runs the fast suite plus the scheduler harness.
 - Semantic skill selection is shipped.
 - `PromptBuilder` expands only relevant skills in full per request.
 - Always-full skills: `set_env_var`, `save_memory`, `install_skill`
 - Preferred config: `SKILL_SELECT_TOP_K=1`
 - Dashboard skill instructions were trimmed as part of token reduction.
+- Dashboard now includes ranked NASA EONET priority hazards in the news panel and has hardened live-refresh behavior.
 - Tiered intelligence architecture implemented (behind `OLLAMA_ENABLED=false`).
   Three tiers: deterministic → Ollama → Claude. Activate when Pi hardware arrives.
 - The major Ollama/Claude handoff seam has been hardened: escalation after tool execution no longer requires re-executing the same side effects.
@@ -54,6 +58,10 @@ Update this file when durable project context changes. Do not create overlapping
   SchedulerThread drains into the orchestrator between voice turns; never interrupts conversation
   delivery modes: `immediate`, `next_wake` (default, queues for next wake-word), `silent` (log-only)
   missed fires are skipped on startup
+- 2026-04-20: hardened dashboard/session runtime behavior and merged EONET hazard ranking into the dashboard news flow
+  priority hazards render above normal news when they clear threshold
+  live dashboard refresh now preserves session state more safely and keeps location/query updates in sync
+  weather location resolution now uses remembered memory before any fallback
 - 2026-04-07: voice/memory bug fixes, proactive memory behavior, chromadb-backed semantic memory as the default path
 - 2026-04-10: native dashboard skill shipped with detached Flask container + host Chromium and live topic updates
 - 2026-04-11: token reduction shipped via semantic skill selection and `main.py --skill-select "QUERY"`
@@ -72,6 +80,7 @@ Update this file when durable project context changes. Do not create overlapping
 - Voice stop/pause control for music is still incomplete.
 - Pi 5 + AI HAT+ 2 dependent work is still blocked on hardware.
 - Memory behavior is structurally aligned now, but still worth validating in practice once more real conversations accumulate.
+- Weather/location memory capture by voice is still skill-prompt driven; there is not yet a dedicated first-class "set my location" tool.
 
 ## Open Technical Notes
 
