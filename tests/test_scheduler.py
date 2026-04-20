@@ -114,3 +114,67 @@ class SchedulesStoreTests(unittest.TestCase):
         self.store.create(entry)
         siblings = list(self.path.parent.iterdir())
         self.assertEqual([p.name for p in siblings], ["schedules.yaml"])
+
+    def test_cancel_by_exact_id(self):
+        from core.scheduler import ScheduleEntry
+        e = ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="immediate")
+        self.store.create(e)
+        removed = self.store.cancel(e.id)
+        self.assertIsNotNone(removed)
+        self.assertEqual(removed.id, e.id)
+        self.assertEqual(self.store.list_all(), [])
+
+    def test_cancel_by_label_case_insensitive(self):
+        from core.scheduler import ScheduleEntry
+        e = ScheduleEntry.new(
+            cron="0 8 * * *", prompt="p", delivery="immediate", label="Morning Briefing"
+        )
+        self.store.create(e)
+        removed = self.store.cancel("morning briefing")
+        self.assertIsNotNone(removed)
+        self.assertEqual(removed.id, e.id)
+
+    def test_cancel_returns_none_when_missing(self):
+        self.assertIsNone(self.store.cancel("nope"))
+
+    def test_modify_updates_fields(self):
+        from core.scheduler import ScheduleEntry
+        e = ScheduleEntry.new(
+            cron="0 8 * * *", prompt="p", delivery="immediate", label="m"
+        )
+        self.store.create(e)
+        modified = self.store.modify(e.id, cron="0 9 * * *", delivery="next_wake")
+        self.assertIsNotNone(modified)
+        self.assertEqual(modified.cron, "0 9 * * *")
+        self.assertEqual(modified.delivery, "next_wake")
+        # Persisted:
+        reloaded = type(self.store)(self.path).list_all()[0]
+        self.assertEqual(reloaded.cron, "0 9 * * *")
+
+    def test_modify_validates_new_cron(self):
+        from core.scheduler import ScheduleEntry, ScheduleValidationError
+        e = ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="immediate")
+        self.store.create(e)
+        with self.assertRaises(ScheduleValidationError):
+            self.store.modify(e.id, cron="not a cron")
+
+    def test_update_last_fired_persists(self):
+        from core.scheduler import ScheduleEntry
+        from datetime import datetime
+        e = ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="immediate")
+        self.store.create(e)
+        ts = datetime(2026, 4, 19, 8, 0, 0)
+        self.store.update_last_fired(e.id, ts)
+        reloaded = type(self.store)(self.path).list_all()[0]
+        self.assertEqual(reloaded.last_fired, ts)
+
+    def test_create_enforces_cap(self):
+        from core.scheduler import ScheduleEntry, ScheduleValidationError
+        for _ in range(50):
+            self.store.create(
+                ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="immediate")
+            )
+        with self.assertRaises(ScheduleValidationError):
+            self.store.create(
+                ScheduleEntry.new(cron="0 8 * * *", prompt="x", delivery="immediate")
+            )

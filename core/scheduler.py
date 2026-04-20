@@ -170,6 +170,59 @@ class SchedulesStore:
             self._save_to_disk()
             return entry
 
+    def cancel(self, id_or_label: str) -> "ScheduleEntry | None":
+        with self._lock:
+            idx = self._find_index(id_or_label)
+            if idx is None:
+                return None
+            removed = self._entries.pop(idx)
+            self._save_to_disk()
+            return removed
+
+    def modify(self, id_or_label: str, **updates) -> "ScheduleEntry | None":
+        with self._lock:
+            idx = self._find_index(id_or_label)
+            if idx is None:
+                return None
+            current = self._entries[idx]
+            new_cron = updates.get("cron", current.cron)
+            new_prompt = updates.get("prompt", current.prompt)
+            new_delivery = updates.get("delivery", current.delivery)
+            new_label = updates.get("label", current.label)
+            # Reuse validation by constructing a fresh entry, then copy id/created over.
+            fresh = ScheduleEntry.new(
+                cron=new_cron,
+                prompt=new_prompt,
+                delivery=new_delivery,
+                label=new_label,
+            )
+            fresh.id = current.id
+            fresh.created = current.created
+            fresh.last_fired = current.last_fired
+            fresh.disabled = current.disabled
+            self._entries[idx] = fresh
+            self._save_to_disk()
+            return fresh
+
+    def update_last_fired(self, entry_id: str, when: datetime) -> None:
+        with self._lock:
+            for e in self._entries:
+                if e.id == entry_id:
+                    e.last_fired = when
+                    self._save_to_disk()
+                    return
+
+    def _find_index(self, id_or_label: str) -> "int | None":
+        key = id_or_label.strip()
+        for i, e in enumerate(self._entries):
+            if e.id == key:
+                return i
+        key_lower = key.lower()
+        for i, e in enumerate(self._entries):
+            if e.label and e.label.lower() == key_lower:
+                return i
+        return None
+
     # ---- internals ----
 
     def _load_from_disk(self) -> None:
