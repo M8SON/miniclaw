@@ -38,5 +38,8 @@ jobs:
       - name: Make test runner executable
         run: chmod +x ./scripts/test.sh
 
-      - name: Run fast test suite
+      - name: Run Fast Test Suite
         run: ./scripts/test.sh
+
+      - name: Run Scheduler Harness
+        run: ./scripts/test.sh --scheduler
