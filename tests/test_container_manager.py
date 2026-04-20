@@ -69,5 +69,96 @@ class ContainerManagerTests(unittest.TestCase):
         )
 
 
+class ScheduleNativeHandlerTests(unittest.TestCase):
+    def setUp(self):
+        from core.scheduler import SchedulesStore
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = SchedulesStore(Path(self._tmp.name) / "schedules.yaml")
+        self.manager = ContainerManager()
+        self.manager._schedules_store = self.store
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_create_returns_ok_and_persists(self):
+        import json
+        out = self.manager._execute_schedule({
+            "action": "create",
+            "cron": "0 8 * * *",
+            "prompt": "tell me the weather",
+            "delivery": "next_wake",
+            "label": "morning briefing",
+        })
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(self.store.list_raw()[0].label, "morning briefing")
+
+    def test_create_rejects_bad_cron(self):
+        import json
+        out = self.manager._execute_schedule({
+            "action": "create",
+            "cron": "not a cron",
+            "prompt": "p",
+            "delivery": "next_wake",
+        })
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("cron", payload["message"])
+
+    def test_list_returns_all_enabled(self):
+        import json
+        from core.scheduler import ScheduleEntry
+        self.store.create(ScheduleEntry.new(
+            cron="0 8 * * *", prompt="a", delivery="next_wake", label="one",
+        ))
+        self.store.create(ScheduleEntry.new(
+            cron="0 9 * * *", prompt="b", delivery="next_wake", label="two",
+        ))
+        out = self.manager._execute_schedule({"action": "list"})
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(len(payload["schedules"]), 2)
+
+    def test_cancel_by_label_removes(self):
+        import json
+        from core.scheduler import ScheduleEntry
+        self.store.create(ScheduleEntry.new(
+            cron="0 8 * * *", prompt="a", delivery="next_wake", label="one",
+        ))
+        out = self.manager._execute_schedule({
+            "action": "cancel", "id_or_label": "one",
+        })
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(self.store.list_all(), [])
+
+    def test_cancel_missing_returns_error(self):
+        import json
+        out = self.manager._execute_schedule({
+            "action": "cancel", "id_or_label": "nope",
+        })
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "error")
+
+    def test_modify_updates_cron(self):
+        import json
+        from core.scheduler import ScheduleEntry
+        self.store.create(ScheduleEntry.new(
+            cron="0 8 * * *", prompt="a", delivery="next_wake", label="one",
+        ))
+        out = self.manager._execute_schedule({
+            "action": "modify", "id_or_label": "one", "cron": "0 9 * * *",
+        })
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(self.store.list_raw()[0].cron, "0 9 * * *")
+
+    def test_unknown_action_returns_error(self):
+        import json
+        out = self.manager._execute_schedule({"action": "bogus"})
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "error")
+
+
 if __name__ == "__main__":
     unittest.main()

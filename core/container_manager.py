@@ -23,6 +23,7 @@ from datetime import date
 from pathlib import Path
 
 from core.mempalace_bridge import MemPalaceBridge
+from core.scheduler import ScheduleEntry, ScheduleValidationError
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +41,7 @@ class ContainerManager:
         self.memory_limit = memory_limit
         self._meta_skill_executor = None  # injected from main.py after construction
         self._orchestrator = None          # injected from main.py after construction
+        self._schedules_store = None       # injected from main.py after construction
         self.docker_available = False
         self.docker_error = None
         self._dashboard_timer: threading.Timer | None = None
@@ -50,6 +52,7 @@ class ContainerManager:
             "save_memory": self._execute_save_memory,
             "dashboard": self._execute_dashboard,
             "soundcloud_play": self._execute_soundcloud,
+            "schedule": self._execute_schedule,
         }
         self._verify_docker()
 
@@ -618,6 +621,79 @@ class ContainerManager:
             pass
 
         return f"Now playing: {title}"
+
+    def _execute_schedule(self, tool_input: dict) -> str:
+        """Native handler for the `schedule` skill."""
+        if self._schedules_store is None:
+            return json.dumps({
+                "status": "error",
+                "message": "scheduler not initialized",
+            })
+
+        action = tool_input.get("action")
+        store = self._schedules_store
+
+        try:
+            if action == "create":
+                entry = ScheduleEntry.new(
+                    cron=tool_input.get("cron", ""),
+                    prompt=tool_input.get("prompt", ""),
+                    delivery=tool_input.get("delivery", "next_wake"),
+                    label=tool_input.get("label"),
+                )
+                store.create(entry)
+                return json.dumps({
+                    "status": "ok",
+                    "schedule": entry.to_dict(),
+                    "message": f"scheduled {entry.label or entry.id}",
+                })
+
+            if action == "list":
+                return json.dumps({
+                    "status": "ok",
+                    "schedules": [e.to_dict() for e in store.list_all()],
+                })
+
+            if action == "cancel":
+                removed = store.cancel(tool_input.get("id_or_label", ""))
+                if removed is None:
+                    return json.dumps({
+                        "status": "error",
+                        "message": f"no schedule matching {tool_input.get('id_or_label')!r}",
+                    })
+                return json.dumps({
+                    "status": "ok",
+                    "schedule": removed.to_dict(),
+                    "message": f"cancelled {removed.label or removed.id}",
+                })
+
+            if action == "modify":
+                updates = {
+                    k: tool_input[k]
+                    for k in ("cron", "prompt", "delivery", "label")
+                    if k in tool_input
+                }
+                modified = store.modify(
+                    tool_input.get("id_or_label", ""), **updates
+                )
+                if modified is None:
+                    return json.dumps({
+                        "status": "error",
+                        "message": f"no schedule matching {tool_input.get('id_or_label')!r}",
+                    })
+                return json.dumps({
+                    "status": "ok",
+                    "schedule": modified.to_dict(),
+                    "message": f"modified {modified.label or modified.id}",
+                })
+
+            return json.dumps({
+                "status": "error",
+                "message": f"unknown action: {action!r}",
+            })
+
+        except ScheduleValidationError as exc:
+            return json.dumps({"status": "error", "message": str(exc)})
 
     def _collect_env_vars(self, var_names: list[str]) -> dict[str, str]:
         """Collect env vars that exist in the host environment."""
