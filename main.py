@@ -18,6 +18,8 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
+from core.scheduler import SchedulesStore, SchedulerThread
+
 load_dotenv()
 
 # Configure logging
@@ -98,6 +100,7 @@ def run_voice_mode(orchestrator, voice=None):
         voice=voice,
         orchestrator=orchestrator,
     )
+    orchestrator.speak_callback = voice.speak
 
     orchestrator.inject_startup_context(_build_startup_context())
     voice.play_startup_sound()
@@ -120,8 +123,23 @@ def run_voice_mode(orchestrator, voice=None):
     # How long to wait for follow-up speech before returning to wake word detection
     conversation_idle_timeout = float(os.getenv("CONVERSATION_IDLE_TIMEOUT", "8"))
 
+    active_flag = getattr(orchestrator, "_conversation_active_flag", [False])
+
     try:
         while True:
+            # Drain any scheduled fires that arrived while we were idle.
+            while not orchestrator.scheduled_fire_queue.empty():
+                try:
+                    fire = orchestrator.scheduled_fire_queue.get_nowait()
+                except Exception:
+                    break
+                orchestrator.process_scheduled_fire(fire)
+
+            # Speak any pending next_wake announcements before the wake cycle.
+            pending = orchestrator.drain_pending_announcements()
+            if pending:
+                voice.speak("Before we chat — " + " ".join(pending))
+
             # Wait for wake word
             print(f"\nWaiting for wake phrase: '{wake_phrase}'...")
             detected = voice.wait_for_wake_word()
@@ -129,6 +147,7 @@ def run_voice_mode(orchestrator, voice=None):
                 break  # Ctrl+C
 
             print("Listening...")
+            active_flag[0] = True
 
             # Conversation session — keep listening until idle
             while True:
@@ -137,6 +156,7 @@ def run_voice_mode(orchestrator, voice=None):
                 if not transcription:
                     # No speech within idle timeout — end session
                     print("Session ended.")
+                    active_flag[0] = False
                     break
 
                 print(f"You: {transcription}")
@@ -147,6 +167,7 @@ def run_voice_mode(orchestrator, voice=None):
                     response = orchestrator.close_session()
                     print(f"\nAssistant: {response}")
                     voice.speak(response)
+                    active_flag[0] = False
                     return
 
                 voice.play_thinking_sound()
@@ -171,6 +192,18 @@ def run_text_mode(orchestrator):
 
     try:
         while True:
+            # Drain any scheduled fires that arrived while idle.
+            while not orchestrator.scheduled_fire_queue.empty():
+                try:
+                    fire = orchestrator.scheduled_fire_queue.get_nowait()
+                except Exception:
+                    break
+                orchestrator.process_scheduled_fire(fire)
+
+            pending = orchestrator.drain_pending_announcements()
+            for note in pending:
+                print(f"[scheduled] {note}\n")
+
             user_input = input("You: ").strip()
 
             if not user_input:
@@ -267,6 +300,25 @@ def main():
     # Inject orchestrator reference for native skills that need to reload
     orchestrator.container_manager._orchestrator = orchestrator
 
+    # --- scheduler wiring ---
+    schedules_path = Path.home() / ".miniclaw" / "schedules.yaml"
+    schedules_store = SchedulesStore(schedules_path)
+    orchestrator.container_manager._schedules_store = schedules_store
+    orchestrator.scheduler_log_path = Path.home() / ".miniclaw" / "scheduler.log"
+
+    # Mutable flag read by the orchestrator to downgrade immediate fires while a
+    # conversation is active. Toggled in run_voice_mode around each session.
+    conversation_active = [False]
+    orchestrator.is_conversation_active = lambda: conversation_active[0]
+    orchestrator._conversation_active_flag = conversation_active
+
+    scheduler_thread = SchedulerThread(
+        store=schedules_store,
+        fire_queue=orchestrator.scheduled_fire_queue,
+    )
+    scheduler_thread.start()
+    orchestrator._scheduler_thread = scheduler_thread
+
     if hasattr(args, "skill_select") and args.skill_select:
         query = args.skill_select
         selected = orchestrator.skill_selector.select(query)
@@ -280,12 +332,19 @@ def main():
         sys.exit(0)
 
     # Run in requested mode
-    if args.list:
-        list_skills(orchestrator)
-    elif args.text:
-        run_text_mode(orchestrator)
-    else:
-        run_voice_mode(orchestrator)
+    try:
+        if args.list:
+            list_skills(orchestrator)
+        elif args.text:
+            run_text_mode(orchestrator)
+        else:
+            run_voice_mode(orchestrator)
+    finally:
+        try:
+            scheduler_thread.stop()
+            scheduler_thread.join(timeout=2.0)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
