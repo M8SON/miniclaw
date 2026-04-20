@@ -1,3 +1,4 @@
+import time
 import unittest
 from datetime import datetime
 
@@ -270,3 +271,71 @@ class StartupCatchupTests(unittest.TestCase):
 
         reloaded = self.store.list_raw()[0]
         self.assertEqual(reloaded.last_fired, datetime(2026, 4, 19, 8, 0, 0))
+
+
+class SchedulerThreadTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        from core.scheduler import SchedulesStore
+        self.store = SchedulesStore(Path(self._tmp.name) / "schedules.yaml")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_start_then_stop_cleanly(self):
+        from core.scheduler import SchedulerThread
+        import queue
+        q = queue.Queue()
+        thread = SchedulerThread(store=self.store, fire_queue=q, tick_seconds=0.05, catch_up_on_start=False)
+        thread.start()
+        time.sleep(0.2)  # let it spin a few times
+        thread.stop()
+        thread.join(timeout=2.0)
+        self.assertFalse(thread.is_alive())
+
+    def test_due_schedule_enqueues_fire(self):
+        from core.scheduler import SchedulerThread, ScheduleEntry
+        from datetime import datetime, timedelta
+        import queue
+
+        e = ScheduleEntry.new(cron="* * * * *", prompt="p", delivery="immediate")
+        # force "already due" by pretending last_fired was long ago and created even earlier
+        e.last_fired = datetime.now() - timedelta(minutes=5)
+        e.created = datetime.now() - timedelta(minutes=10)
+        self.store.create(e)
+
+        q = queue.Queue()
+        thread = SchedulerThread(store=self.store, fire_queue=q, tick_seconds=0.05, catch_up_on_start=False)
+        thread.start()
+        try:
+            fire = q.get(timeout=2.0)
+        finally:
+            thread.stop()
+            thread.join(timeout=2.0)
+        self.assertEqual(fire.entry.id, e.id)
+
+    def test_last_fired_persisted_before_enqueue(self):
+        # After a fire, the next tick must not re-fire the same schedule.
+        from core.scheduler import SchedulerThread, ScheduleEntry
+        from datetime import datetime, timedelta
+        import queue
+
+        e = ScheduleEntry.new(cron="* * * * *", prompt="p", delivery="immediate")
+        e.last_fired = datetime.now() - timedelta(minutes=5)
+        e.created = datetime.now() - timedelta(minutes=10)
+        self.store.create(e)
+
+        q = queue.Queue()
+        thread = SchedulerThread(store=self.store, fire_queue=q, tick_seconds=0.05, catch_up_on_start=False)
+        thread.start()
+        try:
+            q.get(timeout=2.0)  # first fire
+            # wait several ticks to confirm no duplicate
+            time.sleep(0.4)
+            extra = []
+            while not q.empty():
+                extra.append(q.get_nowait())
+            self.assertEqual(extra, [])
+        finally:
+            thread.stop()
+            thread.join(timeout=2.0)

@@ -302,3 +302,60 @@ def skip_missed_on_startup(store: "SchedulesStore", now: datetime) -> None:
             continue
         if next_due <= now:
             store.update_last_fired(entry.id, now)
+
+
+class SchedulerThread(threading.Thread):
+    """
+    Polls the store and enqueues due fires. Runs as a daemon so it
+    doesn't block interpreter shutdown.
+
+    Thread lifecycle:
+      - start(): begin ticking
+      - stop():  request shutdown; next tick exits
+      - join():  wait for exit
+
+    Fire ordering:
+      1. compute_due_fires(now)
+      2. update_last_fired(entry.id, now)   ← persisted BEFORE enqueue
+      3. fire_queue.put(fire)
+
+    This ordering prevents duplicate fires if the consumer is slow.
+    """
+
+    def __init__(
+        self,
+        *,
+        store: SchedulesStore,
+        fire_queue,                    # queue.Queue[ScheduledFire]
+        tick_seconds: float = 30.0,
+        catch_up_on_start: bool = True,
+    ):
+        super().__init__(name="MiniClawScheduler", daemon=True)
+        self._store = store
+        self._queue = fire_queue
+        self._tick_seconds = tick_seconds
+        self._catch_up_on_start = catch_up_on_start
+        self._stop_event = threading.Event()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def run(self) -> None:
+        if self._catch_up_on_start:
+            try:
+                skip_missed_on_startup(self._store, now=datetime.now())
+            except Exception:
+                logger.exception("skip_missed_on_startup failed")
+
+        while not self._stop_event.is_set():
+            try:
+                self._tick()
+            except Exception:
+                logger.exception("scheduler tick crashed; continuing")
+            self._stop_event.wait(self._tick_seconds)
+
+    def _tick(self) -> None:
+        now = datetime.now()
+        for fire in compute_due_fires(self._store, now=now):
+            self._store.update_last_fired(fire.entry.id, now)
+            self._queue.put(fire)
