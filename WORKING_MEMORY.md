@@ -33,7 +33,7 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Skill Split
 
-- Native: `dashboard`, `soundcloud_play`, `install_skill`, `set_env_var`, `save_memory`
+- Native: `dashboard`, `soundcloud_play`, `install_skill`, `set_env_var`, `save_memory`, `schedule`
 - Container: `weather`, `web_search`, `playwright_scraper`, `homebridge`, `skill_tells_random`
 
 ## Current State
@@ -50,6 +50,10 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Recent Durable Milestones
 
+- 2026-04-19: shipped the `schedule` native skill with yaml-backed recurring tasks
+  SchedulerThread drains into the orchestrator between voice turns; never interrupts conversation
+  delivery modes: `immediate`, `next_wake` (default, queues for next wake-word), `silent` (log-only)
+  missed fires are skipped on startup
 - 2026-04-07: voice/memory bug fixes, proactive memory behavior, chromadb-backed semantic memory as the default path
 - 2026-04-10: native dashboard skill shipped with detached Flask container + host Chromium and live topic updates
 - 2026-04-11: token reduction shipped via semantic skill selection and `main.py --skill-select "QUERY"`
