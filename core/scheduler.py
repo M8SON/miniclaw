@@ -212,6 +212,21 @@ class SchedulesStore:
                     self._save_to_disk()
                     return
 
+    def reload_if_changed(self) -> bool:
+        """Re-read the file if its mtime advanced. Returns True on reload."""
+        with self._lock:
+            if not self.path.exists():
+                if self._entries:
+                    self._entries = []
+                    self._last_mtime = 0.0
+                    return True
+                return False
+            current = self.path.stat().st_mtime
+            if current <= self._last_mtime:
+                return False
+            self._load_from_disk()
+            return True
+
     def _find_index(self, id_or_label: str) -> "int | None":
         key = id_or_label.strip()
         for i, e in enumerate(self._entries):
@@ -355,6 +370,7 @@ class SchedulerThread(threading.Thread):
             self._stop_event.wait(self._tick_seconds)
 
     def _tick(self) -> None:
+        self._store.reload_if_changed()
         now = datetime.now()
         for fire in compute_due_fires(self._store, now=now):
             self._store.update_last_fired(fire.entry.id, now)

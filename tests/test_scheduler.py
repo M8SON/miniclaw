@@ -339,3 +339,43 @@ class SchedulerThreadTests(unittest.TestCase):
         finally:
             thread.stop()
             thread.join(timeout=2.0)
+
+
+class HotReloadTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self._tmp.name) / "schedules.yaml"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_external_edit_is_picked_up(self):
+        from core.scheduler import SchedulesStore, SchedulerThread, ScheduleEntry
+        from datetime import datetime, timedelta
+        import queue
+
+        store = SchedulesStore(self.path)
+        q = queue.Queue()
+        thread = SchedulerThread(store=store, fire_queue=q, tick_seconds=0.05)
+        thread.start()
+        try:
+            # No schedules yet — nothing should fire.
+            time.sleep(0.2)
+            self.assertTrue(q.empty())
+
+            # Second store instance simulating an external edit (e.g. Obsidian).
+            other = SchedulesStore(self.path)
+            e = ScheduleEntry.new(
+                cron="* * * * *", prompt="p", delivery="immediate"
+            )
+            e.last_fired = datetime.now() - timedelta(minutes=5)
+            e.created = datetime.now() - timedelta(minutes=10)
+            # ensure mtime bumps on filesystems with 1-second granularity
+            time.sleep(1.1)
+            other.create(e)
+
+            fire = q.get(timeout=3.0)
+            self.assertEqual(fire.entry.id, e.id)
+        finally:
+            thread.stop()
+            thread.join(timeout=2.0)
