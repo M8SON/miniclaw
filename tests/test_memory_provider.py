@@ -8,7 +8,9 @@ import types
 from core.container_manager import ContainerManager
 from core.memory_provider import MemoryProvider
 
-sys.modules.setdefault("anthropic", types.SimpleNamespace(NOT_GIVEN=object()))
+sys.modules.setdefault(
+    "anthropic", types.SimpleNamespace(NOT_GIVEN=object(), Anthropic=object)
+)
 
 from core.tool_loop import ToolLoop
 

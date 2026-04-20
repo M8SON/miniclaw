@@ -5,6 +5,7 @@
 #   ./scripts/test.sh                 # fast suite
 #   ./scripts/test.sh --voice         # fast suite + scripted voice harness
 #   ./scripts/test.sh --install       # fast suite + real install integration
+#   ./scripts/test.sh --scheduler     # fast suite + scheduler end-to-end harness
 #   ./scripts/test.sh --all           # all of the above
 
 set -euo pipefail
@@ -15,6 +16,7 @@ cd "$REPO_ROOT"
 
 RUN_VOICE=false
 RUN_INSTALL=false
+RUN_SCHEDULER=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -26,9 +28,14 @@ while [ $# -gt 0 ]; do
             RUN_INSTALL=true
             shift
             ;;
+        --scheduler)
+            RUN_SCHEDULER=true
+            shift
+            ;;
         --all)
             RUN_VOICE=true
             RUN_INSTALL=true
+            RUN_SCHEDULER=true
             shift
             ;;
         *)
@@ -52,6 +59,11 @@ bash -n run.sh
 if [ "$RUN_VOICE" = true ]; then
     echo "[test] scripted voice harness"
     .venv/bin/python scripts/test_voice_mode_harness.py
+fi
+
+if [ "$RUN_SCHEDULER" = true ]; then
+    echo "[test] scheduler end-to-end harness"
+    .venv/bin/python scripts/test_scheduler_harness.py
 fi
 
 if [ "$RUN_INSTALL" = true ]; then

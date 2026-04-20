@@ -1,4 +1,5 @@
 import io
+import queue
 import unittest
 from contextlib import redirect_stdout
 
@@ -15,6 +16,19 @@ class FakeOrchestrator:
         self.responses = list(responses)
         self.processed = []
         self.container_manager = FakeContainerManager()
+        self.scheduled_fire_queue: queue.Queue = queue.Queue()
+        self.pending_next_wake_announcements: list[str] = []
+        self.speak_callback = None
+        self.is_conversation_active = lambda: False
+        self._conversation_active_flag = [False]
+
+    def drain_pending_announcements(self):
+        drained = list(self.pending_next_wake_announcements)
+        self.pending_next_wake_announcements.clear()
+        return drained
+
+    def process_scheduled_fire(self, fire):
+        pass
 
     def list_skills(self):
         return [{"name": "skill_tells_random", "description": "Tell a random joke"}]

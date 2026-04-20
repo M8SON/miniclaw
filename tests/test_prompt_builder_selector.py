@@ -4,7 +4,9 @@ import sys
 import types
 import unittest
 
-sys.modules.setdefault("anthropic", types.SimpleNamespace(NOT_GIVEN=object()))
+sys.modules.setdefault(
+    "anthropic", types.SimpleNamespace(NOT_GIVEN=object(), Anthropic=object)
+)
 
 
 class FakeSkill:
