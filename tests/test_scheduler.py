@@ -229,3 +229,44 @@ class FireComputationTests(unittest.TestCase):
         now = datetime(2026, 4, 19, 8, 10, 0)
         fires = compute_due_fires(self.store, now=now)
         self.assertEqual(len(fires), 1)
+
+
+class StartupCatchupTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        from core.scheduler import SchedulesStore
+        self.store = SchedulesStore(Path(self._tmp.name) / "schedules.yaml")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_bumps_stale_last_fired_without_firing(self):
+        from core.scheduler import (
+            ScheduleEntry, skip_missed_on_startup, compute_due_fires,
+        )
+        from datetime import datetime
+        e = ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="immediate")
+        e.last_fired = datetime(2026, 4, 18, 8, 0, 0)  # yesterday
+        self.store.create(e)
+
+        now = datetime(2026, 4, 19, 12, 0, 0)  # well past today's 8am
+        skip_missed_on_startup(self.store, now=now)
+
+        # immediate fires should not accumulate on next tick
+        self.assertEqual(compute_due_fires(self.store, now=now), [])
+        # last_fired was bumped to now
+        reloaded = self.store.list_raw()[0]
+        self.assertEqual(reloaded.last_fired, now)
+
+    def test_leaves_fresh_schedules_alone(self):
+        from core.scheduler import ScheduleEntry, skip_missed_on_startup
+        from datetime import datetime
+        e = ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="immediate")
+        e.last_fired = datetime(2026, 4, 19, 8, 0, 0)
+        self.store.create(e)
+
+        now = datetime(2026, 4, 19, 8, 30, 0)  # 30 min after most recent fire
+        skip_missed_on_startup(self.store, now=now)
+
+        reloaded = self.store.list_raw()[0]
+        self.assertEqual(reloaded.last_fired, datetime(2026, 4, 19, 8, 0, 0))

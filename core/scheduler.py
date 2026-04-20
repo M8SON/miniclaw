@@ -285,3 +285,20 @@ def compute_due_fires(store: "SchedulesStore", now: datetime) -> list[ScheduledF
         if next_due <= now:
             fires.append(ScheduledFire(entry=entry, fired_at=now))
     return fires
+
+
+def skip_missed_on_startup(store: "SchedulesStore", now: datetime) -> None:
+    """
+    For every schedule whose next_due (from last_fired or created) is
+    already in the past, bump last_fired to `now`. This is how
+    "skip missed fires silently" is implemented — on startup, past
+    due-windows are discarded rather than fired.
+    """
+    for entry in store.list_all():
+        baseline = entry.last_fired or entry.created
+        try:
+            next_due = croniter(entry.cron, start_time=baseline).get_next(datetime)
+        except (CroniterBadCronError, ValueError):
+            continue
+        if next_due <= now:
+            store.update_last_fired(entry.id, now)
