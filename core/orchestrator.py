@@ -12,6 +12,7 @@ where capabilities are defined by skill files and executed in containers.
 
 import logging
 import os
+import queue as _queue
 from pathlib import Path
 
 import anthropic
@@ -106,6 +107,14 @@ class Orchestrator:
         # per-request prompts can append it after semantic skill selection.
         self._startup_context: str = ""
 
+        # --- scheduler hooks ---
+        self.scheduled_fire_queue: _queue.Queue = _queue.Queue()
+        self.pending_next_wake_announcements: list[str] = []
+        # Injected from main.py — None in text/test mode means "don't speak".
+        self.speak_callback = None
+        self.is_conversation_active = lambda: False
+        self.scheduler_log_path: Path = Path.home() / ".miniclaw" / "scheduler.log"
+
         # Static prompt for internal calls (greet, close_session) that
         # have no user_message to drive semantic selection.
         self.system_prompt = self._build_system_prompt()
@@ -159,6 +168,53 @@ class Orchestrator:
         if self._startup_context:
             prompt += f"\n--- Current Context ---\n{self._startup_context}\n"
         return prompt
+
+    def drain_pending_announcements(self) -> list[str]:
+        """Return queued next_wake announcements in FIFO order, clearing them."""
+        drained = list(self.pending_next_wake_announcements)
+        self.pending_next_wake_announcements.clear()
+        return drained
+
+    def process_scheduled_fire(self, fire) -> None:
+        """
+        Execute a scheduled fire through the tool loop and dispatch its
+        output based on delivery mode. Never raises — a crash here must
+        not take down the voice loop.
+        """
+        entry = fire.entry
+        try:
+            system_prompt = self._build_system_prompt(user_message=entry.prompt)
+            output = self.tool_loop.run(
+                user_message=entry.prompt,
+                system_prompt=system_prompt,
+            )
+        except Exception:
+            logger.exception("scheduled fire %s failed during tool loop", entry.id)
+            return
+
+        delivery = entry.delivery
+        if delivery == "immediate" and self.is_conversation_active():
+            delivery = "next_wake"  # concurrency downgrade
+
+        if delivery == "immediate":
+            if self.speak_callback is not None:
+                try:
+                    self.speak_callback(output)
+                except Exception:
+                    logger.exception("speak_callback failed for schedule %s", entry.id)
+            else:
+                logger.info("[sched %s immediate, no speak_callback] %s", entry.id, output)
+        elif delivery == "next_wake":
+            self.pending_next_wake_announcements.append(output)
+        elif delivery == "silent":
+            try:
+                self.scheduler_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with self.scheduler_log_path.open("a", encoding="utf-8") as fh:
+                    fh.write(f"[{fire.fired_at.isoformat()}] {entry.id}: {output}\n")
+            except Exception:
+                logger.exception("failed writing silent-schedule log for %s", entry.id)
+        else:
+            logger.warning("unknown delivery mode %r for schedule %s", delivery, entry.id)
 
     def process_message(self, user_message: str) -> str:
         """Process a user message through the tiered intelligence stack."""
