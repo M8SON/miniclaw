@@ -22,6 +22,7 @@ import urllib.parse
 from datetime import date
 from pathlib import Path
 
+from containers.dashboard.dashboard_defaults import default_hazard_config
 from core.mempalace_bridge import MemPalaceBridge
 from core.scheduler import ScheduleEntry, ScheduleValidationError
 
@@ -462,6 +463,7 @@ class ContainerManager:
             "rss_feeds": rss_feeds,
             "gdelt_queries": queries,
             "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
+            "hazards": default_hazard_config(enabled="news" in panels),
         })
         weather_loc = location.strip() or os.environ.get("WEATHER_LOCATION", "New York,NY")
 

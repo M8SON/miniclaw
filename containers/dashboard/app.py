@@ -16,9 +16,33 @@ import threading
 import calendar
 from datetime import datetime, timezone
 
-import feedparser
 import requests
 from flask import Flask, render_template, request, jsonify
+
+try:
+    import feedparser
+    FEEDPARSER_AVAILABLE = True
+except ImportError:
+    feedparser = None
+    FEEDPARSER_AVAILABLE = False
+
+try:
+    from .eonet import build_priority_hazards, fetch_eonet_events
+except ImportError:
+    from eonet import build_priority_hazards, fetch_eonet_events
+
+try:
+    from .dashboard_defaults import (
+        DEFAULT_HAZARD_CATEGORIES,
+        DEFAULT_HAZARD_CONFIG,
+        default_hazard_config,
+    )
+except ImportError:
+    from dashboard_defaults import (
+        DEFAULT_HAZARD_CATEGORIES,
+        DEFAULT_HAZARD_CONFIG,
+        default_hazard_config,
+    )
 
 try:
     import yfinance as yf
@@ -29,13 +53,16 @@ except ImportError:
 
 app = Flask(__name__)
 
+DEFAULT_STOCK_TICKERS = ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"]
+
 _state_lock = threading.Lock()
 _state = {
     "panels": [],
     "needs_refresh": False,
     "rss_feeds": [],
     "gdelt_queries": [],
-    "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
+    "stock_tickers": list(DEFAULT_STOCK_TICKERS),
+    "hazard_config": default_hazard_config(),
 }
 
 DEFAULT_RSS_FEEDS = [
@@ -127,12 +154,45 @@ def _gdelt_timestamp(article: dict) -> float:
     return 0.0
 
 
+def _focus_location() -> dict | None:
+    location = os.environ.get("WEATHER_LOCATION", "").strip()
+    if not location:
+        return None
+
+    city = location.split(",")[0].strip()
+    if not city:
+        return None
+
+    try:
+        geo_resp = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1},
+            timeout=10,
+        )
+        geo_resp.raise_for_status()
+        results = geo_resp.json().get("results", [])
+        if not results:
+            return None
+
+        place = results[0]
+        return {
+            "name": place.get("name", city),
+            "lat": place["latitude"],
+            "lon": place["longitude"],
+        }
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Data fetchers
 # ---------------------------------------------------------------------------
 
 def fetch_rss(feeds: list) -> list:
     """Fetch headlines + images from RSS/Atom feeds."""
+    if not FEEDPARSER_AVAILABLE:
+        return []
+
     items = []
     for feed_url in feeds:
         try:
@@ -227,6 +287,44 @@ def fetch_news(rss_feeds: list, gdelt_queries: list) -> list:
             }
         )
     return cleaned
+
+
+def fetch_priority_hazards(hazard_cfg: dict) -> list:
+    focus_location = _focus_location()
+    raw_events = fetch_eonet_events(hazard_cfg)
+    return build_priority_hazards(raw_events, hazard_cfg, focus_location)
+
+
+def _normalize_hazard_config(raw_hazards, *, enabled: bool) -> dict:
+    hazard_cfg = dict(default_hazard_config(enabled=enabled))
+    if isinstance(raw_hazards, dict):
+        hazard_cfg.update(raw_hazards)
+
+    categories = hazard_cfg.get("categories", DEFAULT_HAZARD_CATEGORIES)
+    if isinstance(categories, str):
+        categories = [item.strip() for item in categories.split(",") if item.strip()]
+    elif isinstance(categories, (list, tuple, set)):
+        categories = [str(item).strip() for item in categories if str(item).strip()]
+    else:
+        categories = list(DEFAULT_HAZARD_CATEGORIES)
+
+    hazard_cfg["limit"] = _normalize_hazard_int(hazard_cfg.get("limit"), default=3, minimum=1)
+    hazard_cfg["min_score"] = _normalize_hazard_int(hazard_cfg.get("min_score"), default=40, minimum=0)
+    hazard_cfg["days"] = _normalize_hazard_int(hazard_cfg.get("days"), default=14, minimum=1)
+    hazard_cfg["fetch_limit"] = _normalize_hazard_int(hazard_cfg.get("fetch_limit"), default=20, minimum=1)
+    hazard_cfg["enabled"] = enabled if raw_hazards is None or not isinstance(raw_hazards, dict) else bool(
+        hazard_cfg.get("enabled", enabled)
+    )
+    hazard_cfg["categories"] = categories or list(DEFAULT_HAZARD_CATEGORIES)
+    return hazard_cfg
+
+
+def _normalize_hazard_int(value, *, default: int, minimum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= minimum else default
 
 
 def fetch_weather() -> dict:
@@ -355,6 +453,13 @@ def refresh():
     with _state_lock:
         if panels_str:
             _state["panels"] = [p.strip() for p in panels_str.split(",") if p.strip()]
+            enabled = "news" in _state["panels"]
+            current_hazard_cfg = _state.get("hazard_config", DEFAULT_HAZARD_CONFIG)
+            merged_hazard_cfg = dict(default_hazard_config(enabled=enabled))
+            merged_hazard_cfg.update(current_hazard_cfg)
+            merged_hazard_cfg["categories"] = list(merged_hazard_cfg.get("categories", DEFAULT_HAZARD_CATEGORIES))
+            merged_hazard_cfg["enabled"] = enabled
+            _state["hazard_config"] = merged_hazard_cfg
         if gdelt_str:
             _state["gdelt_queries"] = [q.strip() for q in gdelt_str.split("|") if q.strip()]
             # Topic-specific update: clear RSS so only on-topic GDELT results show.
@@ -379,9 +484,11 @@ def index():
         rss_feeds = list(_state["rss_feeds"])
         gdelt_queries = list(_state["gdelt_queries"])
         stock_tickers = list(_state["stock_tickers"])
+        hazard_config = dict(_state.get("hazard_config", default_hazard_config()))
 
     data = {}
     if "news" in panels:
+        data["priority_hazards"] = fetch_priority_hazards(hazard_config)
         data["news"] = fetch_news(rss_feeds, gdelt_queries)
     if "weather" in panels:
         data["weather"] = fetch_weather()
@@ -414,7 +521,11 @@ def main():
         _state["panels"] = inp.get("panels", ["news", "weather", "stocks", "music"])
         _state["rss_feeds"] = cfg.get("rss_feeds", DEFAULT_RSS_FEEDS)
         _state["gdelt_queries"] = cfg.get("gdelt_queries", DEFAULT_GDELT_QUERIES)
-        _state["stock_tickers"] = cfg.get("stock_tickers", ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"])
+        _state["stock_tickers"] = cfg.get("stock_tickers", list(DEFAULT_STOCK_TICKERS))
+        _state["hazard_config"] = _normalize_hazard_config(
+            cfg.get("hazards"),
+            enabled="news" in _state["panels"],
+        )
 
     app.run(host="0.0.0.0", port=7860, debug=False, threaded=True)
 

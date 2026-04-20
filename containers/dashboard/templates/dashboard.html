@@ -265,8 +265,106 @@ main {
 }
 
 .news-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   padding: 12px;
   min-height: 0;
+  overflow: hidden;
+}
+
+.priority-hazards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  background: linear-gradient(135deg, rgba(50, 20, 14, 0.94), rgba(25, 10, 10, 0.98));
+  border: 1px solid rgba(255, 179, 71, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.priority-hazards-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.priority-hazards-title {
+  color: #ffd4a0;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.priority-hazards-title::before {
+  content: "!";
+  margin-right: 8px;
+  color: var(--red);
+}
+
+.priority-hazards-count {
+  color: rgba(255, 212, 160, 0.72);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hazard-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hazard-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px 11px;
+  background: linear-gradient(180deg, rgba(57, 21, 16, 0.86), rgba(21, 10, 13, 0.96));
+  border: 1px solid rgba(255, 95, 89, 0.22);
+  min-width: 0;
+}
+
+.hazard-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.hazard-badge,
+.hazard-region,
+.hazard-source,
+.hazard-magnitude {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hazard-badge {
+  padding: 4px 7px;
+  background: rgba(255, 95, 89, 0.16);
+  border: 1px solid rgba(255, 95, 89, 0.22);
+  color: #ffd7d4;
+}
+
+.hazard-region,
+.hazard-source,
+.hazard-magnitude {
+  color: rgba(255, 220, 197, 0.76);
+}
+
+.hazard-title {
+  color: #fff4ea;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
   overflow: hidden;
 }
 
@@ -275,7 +373,8 @@ main {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-rows: minmax(260px, 1.28fr) repeat(2, minmax(0, 1fr));
   gap: 10px;
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .news-card {
@@ -797,6 +896,32 @@ main {
     </div>
 
     <div class="news-body">
+      {% if data.get('priority_hazards') %}
+      <section class="priority-hazards">
+        <div class="priority-hazards-header">
+          <span class="priority-hazards-title">Priority hazards</span>
+          <span class="priority-hazards-count">{{ data['priority_hazards']|length }} tracked</span>
+        </div>
+        <div class="hazard-strip">
+          {% for hazard in data['priority_hazards'] %}
+          <article class="hazard-card">
+            <div class="hazard-meta">
+              <span class="hazard-badge">{{ hazard.category_label or hazard.category }}</span>
+              {% if hazard.region_label %}
+              <span class="hazard-region">{{ hazard.region_label }}</span>
+              {% endif %}
+              <span class="hazard-source">{{ hazard.source_label }}</span>
+              {% if hazard.magnitude_label and hazard.magnitude_label != hazard.title %}
+              <span class="hazard-magnitude">{{ hazard.magnitude_label }}</span>
+              {% endif %}
+            </div>
+            <div class="hazard-title">{{ hazard.title }}</div>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
       {% if data.get('news') %}
       <div class="news-cards">
 

@@ -1,0 +1,660 @@
+import builtins
+import importlib
+import importlib.util
+import sys
+import unittest
+from unittest.mock import patch
+
+from containers.dashboard.eonet import (
+    build_priority_hazards,
+    fetch_eonet_events,
+    normalize_event,
+)
+
+
+FLASK_AVAILABLE = importlib.util.find_spec("flask") is not None
+
+
+OPEN_WILDFIRE = {
+    "id": "EONET_1",
+    "title": "Large wildfire near population center",
+    "closed": None,
+    "categories": [{"id": "wildfires", "title": "Wildfires"}],
+    "sources": [{"id": "InciWeb", "url": "https://example.invalid/fire"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T10:00:00Z",
+            "type": "Point",
+            "coordinates": [-72.6, 44.3],
+        }
+    ],
+}
+
+OPEN_DUST = {
+    "id": "EONET_2",
+    "title": "Regional dust event",
+    "closed": None,
+    "categories": [{"id": "dustHaze", "title": "Dust and Haze"}],
+    "sources": [{"id": "NASA", "url": "https://example.invalid/dust"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T08:00:00Z",
+            "type": "Point",
+            "coordinates": [15.0, 22.0],
+        }
+    ],
+}
+
+POLYGON_WILDFIRE = {
+    "id": "EONET_3",
+    "title": "Wildfire affecting a nearby area",
+    "closed": None,
+    "categories": [{"id": "wildfires", "title": "Wildfires"}],
+    "sources": [{"id": "NASA", "url": "https://example.invalid/polygon-fire"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T09:00:00Z",
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [-73.40, 44.35],
+                    [-73.10, 44.35],
+                    [-73.10, 44.55],
+                    [-73.40, 44.55],
+                    [-73.40, 44.35],
+                ]
+            ],
+        }
+    ],
+}
+
+SEVERE_STORM = {
+    "id": "EONET_4",
+    "title": "Severe storm over open water",
+    "closed": None,
+    "categories": [{"id": "severeStorms", "title": "Severe Storms"}],
+    "sources": [{"id": "NASA", "url": "https://example.invalid/storm"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T11:00:00Z",
+            "type": "Point",
+            "coordinates": [-10.0, 10.0],
+        }
+    ],
+}
+
+HIGH_MAG_EARTHQUAKE = {
+    "id": "EONET_5",
+    "title": "Earthquake near the coast",
+    "closed": None,
+    "magnitudeValue": 6.7,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "strong earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-high"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+LOW_MAG_EARTHQUAKE = {
+    "id": "EONET_6",
+    "title": "Earthquake near the coast",
+    "closed": None,
+    "magnitudeValue": 3.1,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "small earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-low"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+ZERO_MAG_EARTHQUAKE = {
+    "id": "EONET_10",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": 0,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "tiny earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-zero"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+NEGATIVE_MAG_EARTHQUAKE = {
+    "id": "EONET_11",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": -1.0,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "bad reading",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-negative"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+MALFORMED_MAG_EARTHQUAKE = {
+    "id": "EONET_12",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": "unknown",
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "unknown reading",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-malformed"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+RECENT_OPEN_EARTHQUAKE = {
+    "id": "EONET_7",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": 4.2,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "moderate earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-open"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+NO_MAG_EARTHQUAKE = {
+    "id": "EONET_13",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-none"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+RECENT_CLOSED_EARTHQUAKE = {
+    "id": "EONET_8",
+    "title": "Earthquake timing check",
+    "closed": "2026-04-19T13:00:00Z",
+    "magnitudeValue": 4.2,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "moderate earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-closed"}],
+    "geometry": [
+        {
+            "date": "2026-04-19T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+STALE_OPEN_EARTHQUAKE = {
+    "id": "EONET_9",
+    "title": "Earthquake timing check",
+    "closed": None,
+    "magnitudeValue": 4.2,
+    "magnitudeUnit": "M",
+    "magnitudeDescription": "moderate earthquake",
+    "categories": [{"id": "earthquakes", "title": "Earthquakes"}],
+    "sources": [{"id": "USGS", "url": "https://example.invalid/quake-stale"}],
+    "geometry": [
+        {
+            "date": "2026-04-16T12:00:00Z",
+            "type": "Point",
+            "coordinates": [-123.0, 49.0],
+        }
+    ],
+}
+
+
+def _load_dashboard_app(*, missing_feedparser: bool = False):
+    sys.modules.pop("containers.dashboard.app", None)
+
+    if not missing_feedparser:
+        return importlib.import_module("containers.dashboard.app")
+
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "feedparser":
+            raise ModuleNotFoundError("No module named 'feedparser'")
+        return original_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=fake_import):
+        return importlib.import_module("containers.dashboard.app")
+
+
+def _default_hazard_config(module, *, enabled: bool = True):
+    if hasattr(module, "default_hazard_config"):
+        return module.default_hazard_config(enabled=enabled)
+
+    cfg = dict(module.DEFAULT_HAZARD_CONFIG)
+    cfg["categories"] = list(cfg.get("categories", []))
+    cfg["enabled"] = enabled
+    return cfg
+
+
+class DashboardEONETTests(unittest.TestCase):
+    def tearDown(self):
+        dashboard_app = sys.modules.get("containers.dashboard.app")
+        if dashboard_app is None:
+            return
+
+        with dashboard_app._state_lock:
+            dashboard_app._state["panels"] = []
+            dashboard_app._state["needs_refresh"] = False
+            dashboard_app._state["rss_feeds"] = []
+            dashboard_app._state["gdelt_queries"] = []
+            dashboard_app._state["stock_tickers"] = list(dashboard_app.DEFAULT_STOCK_TICKERS)
+            dashboard_app._state["hazard_config"] = _default_hazard_config(dashboard_app)
+
+    @patch("containers.dashboard.eonet.requests.get")
+    def test_fetch_eonet_events_builds_request_params_and_returns_events(self, mock_get):
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"events": [OPEN_WILDFIRE]}
+
+        mock_get.return_value = Response()
+
+        result = fetch_eonet_events(
+            {
+                "enabled": True,
+                "fetch_limit": 7,
+                "days": 5,
+                "categories": ["wildfires", "severeStorms"],
+            }
+        )
+
+        self.assertEqual(result, [OPEN_WILDFIRE])
+        mock_get.assert_called_once_with(
+            "https://eonet.gsfc.nasa.gov/api/v3/events",
+            params={
+                "status": "open",
+                "limit": 7,
+                "days": 5,
+                "category": "wildfires,severeStorms",
+            },
+            timeout=10,
+        )
+
+    def test_normalize_event_extracts_dashboard_fields(self):
+        item = normalize_event(
+            OPEN_WILDFIRE,
+            focus_location={"name": "Burlington", "lat": 44.47, "lon": -73.21},
+        )
+
+        self.assertEqual(item["event_id"], "EONET_1")
+        self.assertEqual(item["title"], "Large wildfire near population center")
+        self.assertEqual(item["category"], "wildfires")
+        self.assertEqual(item["category_label"], "Wildfires")
+        self.assertEqual(item["source_label"], "InciWeb")
+        self.assertEqual(item["source_url"], "https://example.invalid/fire")
+        self.assertEqual(item["date"], "2026-04-19T10:00:00Z")
+        self.assertTrue(item["is_open"])
+        self.assertIn("score", item)
+        self.assertIn("region_label", item)
+        self.assertIn("magnitude_label", item)
+
+    def test_normalize_event_extracts_magnitude_fields_into_label(self):
+        item = normalize_event(HIGH_MAG_EARTHQUAKE)
+
+        self.assertIn("6.7", item["magnitude_label"])
+        self.assertIn("M", item["magnitude_label"])
+        self.assertIn("strong earthquake", item["magnitude_label"])
+
+    def test_build_priority_hazards_orders_open_event_ahead_of_closed_event(self):
+        ranked = build_priority_hazards(
+            [RECENT_CLOSED_EARTHQUAKE, RECENT_OPEN_EARTHQUAKE],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual([item["event_id"] for item in ranked], ["EONET_7", "EONET_8"])
+
+    def test_build_priority_hazards_orders_more_recent_event_ahead_of_stale_event(self):
+        ranked = build_priority_hazards(
+            [STALE_OPEN_EARTHQUAKE, RECENT_OPEN_EARTHQUAKE],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual([item["event_id"] for item in ranked], ["EONET_7", "EONET_9"])
+
+    def test_build_priority_hazards_prefers_higher_magnitude_when_other_signals_match(self):
+        ranked = build_priority_hazards(
+            [LOW_MAG_EARTHQUAKE, HIGH_MAG_EARTHQUAKE],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual([item["event_id"] for item in ranked], ["EONET_5", "EONET_6"])
+
+    def test_zero_negative_and_malformed_magnitude_do_not_gain_bonus(self):
+        baseline = normalize_event(NO_MAG_EARTHQUAKE, now_ts=1776596400)["score"]
+
+        zero_item = normalize_event(ZERO_MAG_EARTHQUAKE, now_ts=1776596400)
+        negative_item = normalize_event(NEGATIVE_MAG_EARTHQUAKE, now_ts=1776596400)
+        malformed_item = normalize_event(MALFORMED_MAG_EARTHQUAKE, now_ts=1776596400)
+
+        self.assertEqual(zero_item["score"], baseline)
+        self.assertEqual(negative_item["score"], baseline)
+        self.assertEqual(malformed_item["score"], baseline)
+        self.assertEqual(zero_item["magnitude_label"], "Earthquake timing check")
+        self.assertEqual(negative_item["magnitude_label"], "Earthquake timing check")
+        self.assertEqual(malformed_item["magnitude_label"], "Earthquake timing check")
+        self.assertNotIn("0", zero_item["magnitude_label"])
+        self.assertNotIn("-1", negative_item["magnitude_label"])
+        self.assertNotIn("unknown", malformed_item["magnitude_label"].lower())
+
+    def test_build_priority_hazards_prefers_major_hazard_over_lower_signal_item(self):
+        ranked = build_priority_hazards(
+            [SEVERE_STORM, OPEN_WILDFIRE],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 40},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual(ranked[0]["category"], "wildfires")
+        self.assertEqual(ranked[1]["category"], "severeStorms")
+        self.assertEqual(len(ranked), 2)
+
+    def test_build_priority_hazards_returns_empty_when_all_items_are_below_threshold(self):
+        ranked = build_priority_hazards(
+            [OPEN_DUST],
+            hazard_cfg={"enabled": True, "limit": 3, "min_score": 70},
+            focus_location=None,
+            now_ts=1776596400,
+        )
+
+        self.assertEqual(ranked, [])
+
+    def test_build_priority_hazards_returns_empty_when_disabled(self):
+        ranked = build_priority_hazards(
+            [OPEN_WILDFIRE],
+            hazard_cfg={"enabled": False, "limit": 3, "min_score": 40},
+            focus_location={"name": "Burlington", "lat": 44.47, "lon": -73.21},
+            now_ts=1776596400,
+        )
+
+        self.assertEqual(ranked, [])
+
+    def test_normalize_event_uses_polygon_geometry_for_local_relevance(self):
+        far_item = normalize_event(POLYGON_WILDFIRE)
+        near_item = normalize_event(
+            POLYGON_WILDFIRE,
+            focus_location={"name": "Burlington", "lat": 44.47, "lon": -73.21},
+        )
+
+        self.assertNotEqual(near_item["region_label"], "Global")
+        self.assertGreater(near_item["score"], far_item["score"])
+
+    @patch("containers.dashboard.eonet.requests.get")
+    def test_fetch_eonet_events_returns_empty_list_on_http_failure(self, mock_get):
+        mock_get.side_effect = RuntimeError("boom")
+
+        self.assertEqual(fetch_eonet_events({"enabled": True}), [])
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_dashboard_app_imports_without_feedparser_installed(self):
+        dashboard_app = _load_dashboard_app(missing_feedparser=True)
+
+        self.assertFalse(dashboard_app.FEEDPARSER_AVAILABLE)
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_default_hazard_config_overrides_enabled_without_mutating_defaults(self):
+        dashboard_app = _load_dashboard_app()
+
+        disabled = dashboard_app.default_hazard_config(enabled=False)
+
+        self.assertFalse(disabled["enabled"])
+        self.assertTrue(dashboard_app.DEFAULT_HAZARD_CONFIG["enabled"])
+        self.assertEqual(disabled["categories"], dashboard_app.DEFAULT_HAZARD_CONFIG["categories"])
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_refresh_enables_hazards_when_news_panel_is_added(self):
+        dashboard_app = _load_dashboard_app()
+
+        with dashboard_app._state_lock:
+            dashboard_app._state["panels"] = ["weather"]
+            dashboard_app._state["hazard_config"] = _default_hazard_config(dashboard_app, enabled=False)
+
+        with dashboard_app.app.test_request_context("/refresh?panels=news,weather"):
+            dashboard_app.refresh()
+
+        with dashboard_app._state_lock:
+            hazard_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertTrue(hazard_cfg["enabled"])
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_index_merges_priority_hazards_when_news_panel_is_active(self):
+        dashboard_app = _load_dashboard_app()
+        hazard_cfg = {
+            "enabled": True,
+            "limit": 2,
+            "min_score": 40,
+            "days": 14,
+            "fetch_limit": 12,
+            "categories": ["wildfires", "severeStorms"],
+        }
+
+        with patch.object(dashboard_app, "render_template", return_value="rendered") as mock_render_template, \
+             patch.object(dashboard_app, "fetch_priority_hazards", return_value=[{"event_id": "EONET_1", "title": "hazard"}]) as mock_fetch_priority_hazards, \
+             patch.object(dashboard_app, "fetch_news", return_value=[{"text": "headline", "source": "feed", "image_url": ""}]):
+            with dashboard_app._state_lock:
+                dashboard_app._state["panels"] = ["news", "weather"]
+                dashboard_app._state["rss_feeds"] = ["https://example.invalid/feed"]
+                dashboard_app._state["gdelt_queries"] = ["Burlington"]
+                dashboard_app._state["hazard_config"] = hazard_cfg
+
+            with dashboard_app.app.test_request_context("/"):
+                result = dashboard_app.index()
+
+        self.assertEqual(result, "rendered")
+        mock_fetch_priority_hazards.assert_called_once_with(hazard_cfg)
+        rendered_data = mock_render_template.call_args.kwargs["data"]
+        self.assertEqual(rendered_data["priority_hazards"], [{"event_id": "EONET_1", "title": "hazard"}])
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_dashboard_template_renders_priority_hazards_before_news_cards(self):
+        dashboard_app = _load_dashboard_app()
+        data = {
+            "priority_hazards": [
+                {
+                    "event_id": "EONET_1",
+                    "category": "wildfires",
+                    "category_label": "Wildfires",
+                    "region_label": "Vermont",
+                    "source_label": "InciWeb",
+                    "title": "Large wildfire near population center",
+                    "magnitude_label": "6.7 M strong earthquake",
+                }
+            ],
+            "news": [
+                {
+                    "source": "Newswire",
+                    "text": "Headline one",
+                    "image_url": "",
+                },
+                {
+                    "source": "Newswire",
+                    "text": "Headline two",
+                    "image_url": "",
+                },
+            ],
+        }
+
+        with dashboard_app.app.test_request_context("/"):
+            rendered = dashboard_app.render_template(
+                "dashboard.html",
+                panels=["news"],
+                data=data,
+            )
+
+        self.assertIn("Priority hazards", rendered)
+        self.assertIn("Wildfires", rendered)
+        self.assertIn("Vermont", rendered)
+        self.assertIn("InciWeb", rendered)
+        self.assertIn("Large wildfire near population center", rendered)
+        self.assertIn("6.7 M strong earthquake", rendered)
+        self.assertLess(
+            rendered.index("Priority hazards"),
+            rendered.index("Headline one"),
+        )
+
+    @patch.dict(
+        "os.environ",
+        {
+            "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+            "DASHBOARD_CONFIG": (
+                "{\"hazards\": {\"enabled\": true, \"limit\": 4, \"min_score\": 55, "
+                "\"days\": 10, \"fetch_limit\": 15, \"categories\": [\"wildfires\"]}}"
+            ),
+        },
+        clear=False,
+    )
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_main_hydrates_hazard_config_from_dashboard_config(self):
+        dashboard_app = _load_dashboard_app()
+
+        with dashboard_app._state_lock:
+            dashboard_app._state.pop("hazard_config", None)
+
+        with patch.object(dashboard_app.app, "run") as mock_run:
+            dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            hazard_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertEqual(
+            hazard_cfg,
+            {
+                "enabled": True,
+                "limit": 4,
+                "min_score": 55,
+                "days": 10,
+                "fetch_limit": 15,
+                "categories": ["wildfires"],
+            },
+        )
+        mock_run.assert_called_once()
+
+    @patch.dict(
+        "os.environ",
+        {
+            "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+            "DASHBOARD_CONFIG": "{\"hazards\": \"invalid\"}",
+        },
+        clear=False,
+    )
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_main_hardens_malformed_hazard_config_and_splits_string_categories(self):
+        dashboard_app = _load_dashboard_app()
+
+        with patch.object(dashboard_app.app, "run"):
+            dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            invalid_hazard_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertEqual(
+            invalid_hazard_cfg,
+            dashboard_app.default_hazard_config(enabled=True),
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+                "DASHBOARD_CONFIG": (
+                    "{\"hazards\": {\"categories\": \"wildfires,severeStorms\", "
+                    "\"limit\": \"abc\", \"min_score\": \"oops\", \"days\": \"bad\", "
+                    "\"fetch_limit\": \"broken\"}}"
+                ),
+            },
+            clear=False,
+        ):
+            with patch.object(dashboard_app.app, "run") as mock_run:
+                dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            string_category_cfg = dict(dashboard_app._state["hazard_config"])
+
+        self.assertEqual(string_category_cfg["categories"], ["wildfires", "severeStorms"])
+        self.assertEqual(string_category_cfg["limit"], 3)
+        self.assertEqual(string_category_cfg["min_score"], 40)
+        self.assertEqual(string_category_cfg["days"], 14)
+        self.assertEqual(string_category_cfg["fetch_limit"], 20)
+        mock_run.assert_called_once()
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_main_copies_default_categories_into_state_without_aliasing(self):
+        dashboard_app = _load_dashboard_app()
+
+        dashboard_app._state["hazard_config"]["categories"].append("bootAlias")
+        self.assertNotIn("bootAlias", dashboard_app.DEFAULT_HAZARD_CONFIG["categories"])
+        dashboard_app._state["hazard_config"]["categories"].remove("bootAlias")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SKILL_INPUT": "{\"panels\": [\"news\"]}",
+                "DASHBOARD_CONFIG": "{}",
+            },
+            clear=False,
+        ):
+            with patch.object(dashboard_app.app, "run"):
+                dashboard_app.main()
+
+        with dashboard_app._state_lock:
+            state_categories = dashboard_app._state["hazard_config"]["categories"]
+            state_categories.append("customHazard")
+
+        self.assertNotIn("customHazard", dashboard_app.DEFAULT_HAZARD_CATEGORIES)
+        self.assertNotIn("customHazard", dashboard_app.DEFAULT_HAZARD_CONFIG["categories"])
+
+
+if __name__ == "__main__":
+    unittest.main()
