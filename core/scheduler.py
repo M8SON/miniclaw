@@ -257,3 +257,31 @@ class SchedulesStore:
         )
         tmp.replace(self.path)
         self._last_mtime = self.path.stat().st_mtime
+
+
+@dataclass
+class ScheduledFire:
+    entry: ScheduleEntry
+    fired_at: datetime
+
+
+def compute_due_fires(store: "SchedulesStore", now: datetime) -> list[ScheduledFire]:
+    """
+    Pure function — inspects the store and returns a list of fires that
+    are due as of `now`. Does NOT mutate last_fired; the caller is
+    responsible for persisting that after a successful enqueue.
+
+    Uses (last_fired or created) as the baseline for cron iteration so
+    the first fire after creation respects the cron pattern.
+    """
+    fires: list[ScheduledFire] = []
+    for entry in store.list_all():
+        baseline = entry.last_fired or entry.created
+        try:
+            next_due = croniter(entry.cron, start_time=baseline).get_next(datetime)
+        except (CroniterBadCronError, ValueError) as exc:
+            logger.warning("skipping schedule %s with bad cron: %s", entry.id, exc)
+            continue
+        if next_due <= now:
+            fires.append(ScheduledFire(entry=entry, fired_at=now))
+    return fires

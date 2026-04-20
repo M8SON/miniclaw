@@ -178,3 +178,54 @@ class SchedulesStoreTests(unittest.TestCase):
             self.store.create(
                 ScheduleEntry.new(cron="0 8 * * *", prompt="x", delivery="immediate")
             )
+
+
+class FireComputationTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        from core.scheduler import SchedulesStore
+        self.store = SchedulesStore(Path(self._tmp.name) / "schedules.yaml")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_fires_when_cron_due(self):
+        from core.scheduler import ScheduleEntry, compute_due_fires
+        from datetime import datetime, timedelta
+        e = ScheduleEntry.new(cron="*/5 * * * *", prompt="p", delivery="immediate")
+        e.last_fired = datetime(2026, 4, 19, 8, 0, 0)
+        self.store.create(e)
+        now = datetime(2026, 4, 19, 8, 7, 0)
+        fires = compute_due_fires(self.store, now=now)
+        self.assertEqual(len(fires), 1)
+        self.assertEqual(fires[0].entry.id, e.id)
+        self.assertEqual(fires[0].fired_at, now)
+
+    def test_does_not_fire_before_due(self):
+        from core.scheduler import ScheduleEntry, compute_due_fires
+        from datetime import datetime
+        e = ScheduleEntry.new(cron="0 9 * * *", prompt="p", delivery="immediate")
+        e.last_fired = datetime(2026, 4, 19, 8, 30, 0)
+        self.store.create(e)
+        now = datetime(2026, 4, 19, 8, 45, 0)  # next due is 9:00
+        self.assertEqual(compute_due_fires(self.store, now=now), [])
+
+    def test_disabled_entries_do_not_fire(self):
+        from core.scheduler import ScheduleEntry, compute_due_fires
+        from datetime import datetime
+        e = ScheduleEntry.new(cron="* * * * *", prompt="p", delivery="immediate")
+        e.disabled = True
+        self.store.create(e)
+        now = datetime(2026, 4, 19, 8, 0, 0)
+        self.assertEqual(compute_due_fires(self.store, now=now), [])
+
+    def test_never_fired_uses_created_as_baseline(self):
+        from core.scheduler import ScheduleEntry, compute_due_fires
+        from datetime import datetime
+        e = ScheduleEntry.new(cron="*/5 * * * *", prompt="p", delivery="immediate")
+        e.created = datetime(2026, 4, 19, 8, 0, 0)
+        e.last_fired = None
+        self.store.create(e)
+        now = datetime(2026, 4, 19, 8, 10, 0)
+        fires = compute_due_fires(self.store, now=now)
+        self.assertEqual(len(fires), 1)
