@@ -57,6 +57,26 @@ class MemoryProviderTests(unittest.TestCase):
         self.assertEqual(result, "memory hit")
         search.assert_called_once()
 
+    def test_load_topic_returns_newest_matching_note_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            (vault / "2026-04-01_location.md").write_text(
+                "---\ndate: 2026-04-01\ntopic: location\n---\n\nBurlington,VT\n",
+                encoding="utf-8",
+            )
+            (vault / "2026-04-02_location.md").write_text(
+                "---\ndate: 2026-04-02\ntopic: location\n---\n\nDenver,CO\n",
+                encoding="utf-8",
+            )
+            (vault / "2026-04-03_other.md").write_text(
+                "---\ndate: 2026-04-03\ntopic: dashboard news preferences\n---\n\nworld news\n",
+                encoding="utf-8",
+            )
+
+            provider = MemoryProvider(vault_path=vault, backend="vault", max_tokens=100)
+
+            self.assertEqual(provider.load_topic("location"), "Denver,CO")
+
 
 class SaveMemoryTests(unittest.TestCase):
     def test_save_memory_reports_mempalace_mirror_when_auto_backend_detects_it(self):

@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from core.scheduler import SchedulesStore, SchedulerThread
+from core.location_preference import resolve_location
 
 load_dotenv()
 
@@ -62,7 +63,7 @@ def _build_startup_context() -> str:
     now = datetime.now()
     context = now.strftime("Today is %A, %B %-d. The time is %-I:%M %p.")
 
-    location = os.getenv("WEATHER_LOCATION", "").strip()
+    location = resolve_location()
     api_key = os.getenv("OPENWEATHER_API_KEY", "").strip()
     if location and api_key:
         weather = _fetch_weather_for_context(location, api_key)
@@ -133,7 +134,9 @@ def run_voice_mode(orchestrator, voice=None):
                     fire = orchestrator.scheduled_fire_queue.get_nowait()
                 except Exception:
                     break
-                orchestrator.process_scheduled_fire(fire)
+                delivered = orchestrator.process_scheduled_fire(fire)
+                if delivered:
+                    print(f"[scheduled] {delivered}\n")
 
             # Speak any pending next_wake announcements before the wake cycle.
             pending = orchestrator.drain_pending_announcements()
@@ -198,7 +201,9 @@ def run_text_mode(orchestrator):
                     fire = orchestrator.scheduled_fire_queue.get_nowait()
                 except Exception:
                     break
-                orchestrator.process_scheduled_fire(fire)
+                delivered = orchestrator.process_scheduled_fire(fire)
+                if delivered:
+                    print(f"[scheduled] {delivered}\n")
 
             pending = orchestrator.drain_pending_announcements()
             for note in pending:

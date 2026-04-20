@@ -63,6 +63,7 @@ _state = {
     "gdelt_queries": [],
     "stock_tickers": list(DEFAULT_STOCK_TICKERS),
     "hazard_config": default_hazard_config(),
+    "weather_location": os.environ.get("WEATHER_LOCATION", "New York,NY"),
 }
 
 DEFAULT_RSS_FEEDS = [
@@ -155,7 +156,8 @@ def _gdelt_timestamp(article: dict) -> float:
 
 
 def _focus_location() -> dict | None:
-    location = os.environ.get("WEATHER_LOCATION", "").strip()
+    with _state_lock:
+        location = str(_state.get("weather_location", os.environ.get("WEATHER_LOCATION", ""))).strip()
     if not location:
         return None
 
@@ -182,6 +184,31 @@ def _focus_location() -> dict | None:
         }
     except Exception:
         return None
+
+
+def _location_city(location: str) -> str:
+    return location.split(",")[0].strip()
+
+
+def _sync_location_query(existing_queries: list[str], previous_location: str, new_location: str) -> list[str]:
+    previous_city = _location_city(previous_location)
+    new_city = _location_city(new_location)
+    if not new_city:
+        return list(existing_queries)
+
+    synced: list[str] = []
+    replaced = False
+    for query in existing_queries:
+        if previous_city and query.strip().lower() == previous_city.lower():
+            if not replaced:
+                synced.append(new_city)
+                replaced = True
+            continue
+        synced.append(query)
+
+    if not replaced and not any(query.strip().lower() == new_city.lower() for query in synced):
+        synced.append(new_city)
+    return synced
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +356,8 @@ def _normalize_hazard_int(value, *, default: int, minimum: int) -> int:
 
 def fetch_weather() -> dict:
     """Fetch current weather from open-meteo (free, no API key)."""
-    location = os.environ.get("WEATHER_LOCATION", "New York,NY")
+    with _state_lock:
+        location = str(_state.get("weather_location", os.environ.get("WEATHER_LOCATION", "New York,NY")))
     try:
         city = location.split(",")[0].strip()
         geo_resp = requests.get(
@@ -443,6 +471,7 @@ def refresh():
     panels_str = request.args.get("panels", "")
     gdelt_str = request.args.get("gdelt_queries", "")
     sources_str = request.args.get("news_sources", "")
+    location = request.args.get("location", "").strip()
 
     rss_source_map = {
         "osint":    ["https://bellingcat.com/feed/", "https://www.twz.com/rss"],
@@ -451,6 +480,7 @@ def refresh():
     }
 
     with _state_lock:
+        previous_location = str(_state.get("weather_location", ""))
         if panels_str:
             _state["panels"] = [p.strip() for p in panels_str.split(",") if p.strip()]
             enabled = "news" in _state["panels"]
@@ -472,6 +502,14 @@ def refresh():
             for src in sources:
                 feeds.extend(rss_source_map.get(src, []))
             _state["rss_feeds"] = feeds
+        if location:
+            if not gdelt_str:
+                _state["gdelt_queries"] = _sync_location_query(
+                    list(_state["gdelt_queries"]),
+                    previous_location,
+                    location,
+                )
+            _state["weather_location"] = location
         _state["needs_refresh"] = True
 
     return jsonify({"status": "ok"})
@@ -522,6 +560,7 @@ def main():
         _state["rss_feeds"] = cfg.get("rss_feeds", DEFAULT_RSS_FEEDS)
         _state["gdelt_queries"] = cfg.get("gdelt_queries", DEFAULT_GDELT_QUERIES)
         _state["stock_tickers"] = cfg.get("stock_tickers", list(DEFAULT_STOCK_TICKERS))
+        _state["weather_location"] = os.environ.get("WEATHER_LOCATION", "New York,NY")
         _state["hazard_config"] = _normalize_hazard_config(
             cfg.get("hazards"),
             enabled="news" in _state["panels"],

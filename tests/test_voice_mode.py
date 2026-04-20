@@ -2,6 +2,8 @@ import io
 import queue
 import unittest
 from contextlib import redirect_stdout
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import main
 
@@ -114,6 +116,24 @@ class VoiceModeTests(unittest.TestCase):
         self.assertEqual(orchestrator.processed, [])
         self.assertEqual(voice.spoken, ["Good morning."])  # greeting fires before wake loop
         self.assertEqual(voice.thinking_sounds, 0)
+
+    def test_text_mode_prints_immediate_schedule_output_before_prompt(self):
+        orchestrator = FakeOrchestrator([])
+        fire = SimpleNamespace(entry=SimpleNamespace(delivery="immediate"))
+        orchestrator.scheduled_fire_queue.put(fire)
+
+        def fake_process_scheduled_fire(pending_fire):
+            self.assertIs(pending_fire, fire)
+            return "Scheduled briefing"
+
+        orchestrator.process_scheduled_fire = fake_process_scheduled_fire
+
+        output = io.StringIO()
+        with patch("builtins.input", return_value="quit"), redirect_stdout(output):
+            main.run_text_mode(orchestrator)
+
+        rendered = output.getvalue()
+        self.assertIn("[scheduled] Scheduled briefing", rendered)
 
 
 if __name__ == "__main__":

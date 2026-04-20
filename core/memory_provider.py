@@ -107,6 +107,25 @@ class MemoryProvider:
 
         return self._keyword_search_vault(query)
 
+    def load_topic(self, topic: str) -> str:
+        """Return the newest saved note body for an exact topic label."""
+        wanted = str(topic or "").strip().lower()
+        if not wanted or not self.vault_path.is_dir():
+            return ""
+
+        for md_file in sorted(self.vault_path.glob("*.md"), reverse=True):
+            try:
+                text = md_file.read_text(encoding="utf-8")
+            except OSError:
+                continue
+
+            note_topic = self._extract_frontmatter_topic(text).lower()
+            if note_topic != wanted:
+                continue
+
+            return self._strip_frontmatter(text)
+        return ""
+
     def _keyword_search_vault(self, query: str) -> str:
         """Search vault notes by keyword. Simple fallback when MemPalace is not available."""
         if not self.vault_path.is_dir():
@@ -187,6 +206,18 @@ class MemoryProvider:
             parts = text.split("---", 2)
             return parts[2].strip() if len(parts) >= 3 else text.strip()
         return text.strip()
+
+    def _extract_frontmatter_topic(self, text: str) -> str:
+        """Extract a note topic from optional YAML frontmatter."""
+        if not text.startswith("---"):
+            return ""
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return ""
+        for line in parts[1].splitlines():
+            if line.lower().startswith("topic:"):
+                return line.split(":", 1)[1].strip()
+        return ""
 
     def _select_notes_for_prompt(self, notes: list[str]) -> list[str]:
         """Keep the newest whole notes that fit the configured memory budget."""

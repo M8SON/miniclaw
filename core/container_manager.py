@@ -23,6 +23,7 @@ from datetime import date
 from pathlib import Path
 
 from containers.dashboard.dashboard_defaults import default_hazard_config
+from core.location_preference import resolve_location
 from core.mempalace_bridge import MemPalaceBridge
 from core.scheduler import ScheduleEntry, ScheduleValidationError
 
@@ -405,6 +406,16 @@ class ContainerManager:
             return f"Error closing dashboard: {exc}"
         return "Display closed."
 
+    def _restart_dashboard_timer(self, timeout_minutes: int) -> None:
+        """Reset the dashboard auto-close timer to a fresh deadline."""
+        if self._dashboard_timer:
+            self._dashboard_timer.cancel()
+        self._dashboard_timer = threading.Timer(
+            timeout_minutes * 60, self._close_dashboard_internal
+        )
+        self._dashboard_timer.daemon = True
+        self._dashboard_timer.start()
+
     def _open_dashboard(self, panels: list, timeout_minutes: int, location: str = "", news_sources: list = None, gdelt_queries: list = None) -> str:
         """Start the dashboard container + host Chromium, write lock, start timer."""
         # --- Handle already-running dashboard ---
@@ -418,8 +429,11 @@ class ContainerManager:
                     params["gdelt_queries"] = "|".join(gdelt_queries)
                 if news_sources:
                     params["news_sources"] = ",".join(news_sources)
+                if location.strip():
+                    params["location"] = location.strip()
                 url = f"http://localhost:{lock['port']}/refresh?" + urllib.parse.urlencode(params)
                 urllib.request.urlopen(url, timeout=5)
+                self._restart_dashboard_timer(timeout_minutes)
                 return f"Dashboard updated with {', '.join(panels)}."
             except ProcessLookupError:
                 # Chromium died — stale lock, cancel old timer and relaunch
@@ -432,7 +446,7 @@ class ContainerManager:
                     pass
                 DASHBOARD_LOCK.unlink(missing_ok=True)
             except Exception:
-                DASHBOARD_LOCK.unlink(missing_ok=True)
+                return "Dashboard update failed; leaving existing display running."
 
         if not self.docker_available:
             return f"Dashboard unavailable: {self.docker_error or 'Docker is not running'}."
@@ -455,7 +469,8 @@ class ContainerManager:
         # --- Build GDELT queries ---
         queries = list(gdelt_queries or [])
         # Add location query if Claude passed one and it's not already included
-        city = location.strip() or os.environ.get("WEATHER_LOCATION", "New York,NY").split(",")[0].strip()
+        resolved_location = resolve_location(location, default="New York,NY")
+        city = resolved_location.split(",")[0].strip()
         if city and not any(city.lower() in q.lower() for q in queries):
             queries.append(city)
 
@@ -465,7 +480,7 @@ class ContainerManager:
             "stock_tickers": ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY"],
             "hazards": default_hazard_config(enabled="news" in panels),
         })
-        weather_loc = location.strip() or os.environ.get("WEATHER_LOCATION", "New York,NY")
+        weather_loc = resolved_location or "New York,NY"
 
         # --- Start Flask container (detached) ---
         docker_cmd = [
@@ -526,13 +541,7 @@ class ContainerManager:
         }))
 
         # --- Start auto-close timer ---
-        if self._dashboard_timer:
-            self._dashboard_timer.cancel()
-        self._dashboard_timer = threading.Timer(
-            timeout_minutes * 60, self._close_dashboard_internal
-        )
-        self._dashboard_timer.daemon = True
-        self._dashboard_timer.start()
+        self._restart_dashboard_timer(timeout_minutes)
 
         panel_list = ", ".join(panels) if panels else "all panels"
         return f"Dashboard is up with {panel_list}."
@@ -542,7 +551,10 @@ class ContainerManager:
         action = str(tool_input.get("action", "")).strip().lower()
         if action == "open":
             panels = tool_input.get("panels", ["news", "weather", "stocks", "music"])
-            timeout_minutes = int(tool_input.get("timeout_minutes", 10))
+            try:
+                timeout_minutes = max(1, int(tool_input.get("timeout_minutes", 10)))
+            except (TypeError, ValueError):
+                timeout_minutes = 10
             location = tool_input.get("location", "")
             news_sources = tool_input.get("news_sources", ["osint", "world"])
             gdelt_queries = tool_input.get("gdelt_queries", [])

@@ -175,7 +175,7 @@ class Orchestrator:
         self.pending_next_wake_announcements.clear()
         return drained
 
-    def process_scheduled_fire(self, fire) -> None:
+    def process_scheduled_fire(self, fire) -> str | None:
         """
         Execute a scheduled fire through the tool loop and dispatch its
         output based on delivery mode. Never raises — a crash here must
@@ -190,7 +190,7 @@ class Orchestrator:
             )
         except Exception:
             logger.exception("scheduled fire %s failed during tool loop", entry.id)
-            return
+            return None
 
         delivery = entry.delivery
         if delivery == "immediate" and self.is_conversation_active():
@@ -204,6 +204,7 @@ class Orchestrator:
                     logger.exception("speak_callback failed for schedule %s", entry.id)
             else:
                 logger.info("[sched %s immediate, no speak_callback] %s", entry.id, output)
+                return output
         elif delivery == "next_wake":
             self.pending_next_wake_announcements.append(output)
         elif delivery == "silent":
@@ -215,6 +216,7 @@ class Orchestrator:
                 logger.exception("failed writing silent-schedule log for %s", entry.id)
         else:
             logger.warning("unknown delivery mode %r for schedule %s", delivery, entry.id)
+        return None
 
     def process_message(self, user_message: str) -> str:
         """Process a user message through the tiered intelligence stack."""

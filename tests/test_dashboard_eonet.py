@@ -469,6 +469,40 @@ class DashboardEONETTests(unittest.TestCase):
         self.assertTrue(hazard_cfg["enabled"])
 
     @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_refresh_updates_weather_location_when_location_is_provided(self):
+        dashboard_app = _load_dashboard_app()
+
+        with dashboard_app._state_lock:
+            dashboard_app._state["weather_location"] = "New York,NY"
+
+        with dashboard_app.app.test_request_context("/refresh?panels=news,weather&location=Burlington,VT"):
+            dashboard_app.refresh()
+
+        with dashboard_app._state_lock:
+            weather_location = dashboard_app._state["weather_location"]
+
+        self.assertEqual(weather_location, "Burlington,VT")
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
+    def test_refresh_updates_location_derived_gdelt_query_when_only_location_changes(self):
+        dashboard_app = _load_dashboard_app()
+
+        with dashboard_app._state_lock:
+            dashboard_app._state["weather_location"] = "New York,NY"
+            dashboard_app._state["gdelt_queries"] = ["New York", "conflict military geopolitics"]
+
+        with dashboard_app.app.test_request_context("/refresh?panels=news,weather&location=Burlington,VT"):
+            dashboard_app.refresh()
+
+        with dashboard_app._state_lock:
+            weather_location = dashboard_app._state["weather_location"]
+            gdelt_queries = list(dashboard_app._state["gdelt_queries"])
+
+        self.assertEqual(weather_location, "Burlington,VT")
+        self.assertIn("Burlington", gdelt_queries)
+        self.assertNotIn("New York", gdelt_queries)
+
+    @unittest.skipUnless(FLASK_AVAILABLE, "flask not installed in host unit-test environment")
     def test_index_merges_priority_hazards_when_news_panel_is_active(self):
         dashboard_app = _load_dashboard_app()
         hazard_cfg = {
