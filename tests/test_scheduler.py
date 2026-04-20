@@ -70,3 +70,47 @@ class ScheduleEntryTests(unittest.TestCase):
         del valid["cron"]
         with self.assertRaises(ScheduleValidationError):
             ScheduleEntry.from_dict(valid)
+
+
+import tempfile
+from pathlib import Path
+
+
+class SchedulesStoreTests(unittest.TestCase):
+    def setUp(self):
+        from core.scheduler import SchedulesStore
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self._tmp.name) / "schedules.yaml"
+        self.store = SchedulesStore(self.path)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_load_empty_when_file_missing(self):
+        self.assertEqual(self.store.list_all(), [])
+
+    def test_save_and_load_roundtrip(self):
+        from core.scheduler import ScheduleEntry
+        entry = ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="next_wake")
+        self.store.create(entry)
+
+        other = type(self.store)(self.path)
+        loaded = other.list_all()
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0].id, entry.id)
+        self.assertEqual(loaded[0].cron, "0 8 * * *")
+
+    def test_corrupt_yaml_returns_empty_without_overwriting(self):
+        from core.scheduler import SchedulesStore
+        self.path.write_text("this is: : not valid: yaml: [", encoding="utf-8")
+        store = SchedulesStore(self.path)
+        self.assertEqual(store.list_all(), [])
+        # original file must be preserved
+        self.assertIn("not valid", self.path.read_text(encoding="utf-8"))
+
+    def test_atomic_write_leaves_no_tmp_file(self):
+        from core.scheduler import ScheduleEntry
+        entry = ScheduleEntry.new(cron="0 8 * * *", prompt="p", delivery="immediate")
+        self.store.create(entry)
+        siblings = list(self.path.parent.iterdir())
+        self.assertEqual([p.name for p in siblings], ["schedules.yaml"])

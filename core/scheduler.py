@@ -124,3 +124,83 @@ class ScheduleEntry:
             last_fired=_dt(data.get("last_fired")),
             disabled=bool(data.get("disabled", False)),
         )
+
+
+class SchedulesStore:
+    """
+    YAML-backed, thread-safe store for ScheduleEntry records.
+
+    File format:
+        schedules:
+          - id: sch_a3f1
+            cron: "0 8 * * *"
+            ...
+
+    On corrupted yaml, load returns an empty list without rewriting the
+    file so the user can recover manually.
+    """
+
+    MAX_SCHEDULES = 50
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self._lock = threading.Lock()
+        self._entries: list[ScheduleEntry] = []
+        self._last_mtime: float = 0.0
+        self._load_from_disk()
+
+    # ---- public API ----
+
+    def list_all(self) -> list[ScheduleEntry]:
+        with self._lock:
+            return [e for e in self._entries if not e.disabled]
+
+    def list_raw(self) -> list[ScheduleEntry]:
+        """All entries, including disabled ones. For management actions."""
+        with self._lock:
+            return list(self._entries)
+
+    def create(self, entry: ScheduleEntry) -> ScheduleEntry:
+        with self._lock:
+            if len(self._entries) >= self.MAX_SCHEDULES:
+                raise ScheduleValidationError(
+                    f"schedule limit reached ({self.MAX_SCHEDULES})"
+                )
+            self._entries.append(entry)
+            self._save_to_disk()
+            return entry
+
+    # ---- internals ----
+
+    def _load_from_disk(self) -> None:
+        if not self.path.exists():
+            self._entries = []
+            self._last_mtime = 0.0
+            return
+        try:
+            raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as exc:
+            logger.error("schedules.yaml is corrupt, running empty: %s", exc)
+            self._entries = []
+            self._last_mtime = self.path.stat().st_mtime
+            return
+        items = raw.get("schedules") or []
+        parsed: list[ScheduleEntry] = []
+        for item in items:
+            try:
+                parsed.append(ScheduleEntry.from_dict(item))
+            except Exception as exc:
+                logger.warning("skipping unreadable schedule entry: %s (%s)", item, exc)
+        self._entries = parsed
+        self._last_mtime = self.path.stat().st_mtime
+
+    def _save_to_disk(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        data = {"schedules": [e.to_dict() for e in self._entries]}
+        tmp.write_text(
+            yaml.safe_dump(data, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+        tmp.replace(self.path)
+        self._last_mtime = self.path.stat().st_mtime
