@@ -98,6 +98,9 @@ Four enhancements inspired by the Hermes project. `schedule` skill (#1) shipped 
 
 1. ~~Cron/schedule skill — yaml-backed recurring tasks that fire natural-language prompts through the orchestrator.~~ Done 2026-04-19.
 2. FTS5 session archive — persist past conversations to a sqlite FTS5 index so Claude can recall prior sessions by content search.
+   v1 plan: FTS5-only, tool-invoked `recall_session` skill, per-turn writes for crash safety, captures user/assistant text + short tool-activity summaries.
+   Engine choice: FTS5 over chromadb for v1 because per-turn `all-MiniLM-L6-v2` embedding (~50-200ms on Pi 5 CPU, ~150-300MB resident RAM) sits on the voice loop critical path. FTS5 writes are microseconds.
+   Forward plan: design the `recall_session` interface and sqlite schema so a chromadb rerank layer can drop in cleanly once Hailo-8L NPU offload makes embeddings near-free. Do NOT implement the chromadb path until Hailo arrives — defer it as a follow-up so we never ship CPU-side embedding on the write path.
 3. agentskills.io compat — align skill loader / manifest format with the agentskills.io registry so community skills are drop-in installable.
 4. Self-improving skills — let skills record their own usage outcomes and refine their SKILL.md routing hints over time.
 
