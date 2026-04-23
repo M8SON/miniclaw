@@ -42,6 +42,12 @@ class FakeOrchestrator:
     def close_session(self):
         return "Goodbye!"
 
+    def start_session(self, mode):
+        pass
+
+    def end_session(self):
+        pass
+
     def inject_startup_context(self, context: str):
         pass
 

@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from core.scheduler import SchedulesStore, SchedulerThread
 from core.location_preference import resolve_location
+from core.session_archive import SessionArchive
 
 load_dotenv()
 
@@ -151,6 +152,7 @@ def run_voice_mode(orchestrator, voice=None):
 
             print("Listening...")
             active_flag[0] = True
+            orchestrator.start_session("voice")
 
             # Conversation session — keep listening until idle
             while True:
@@ -160,6 +162,7 @@ def run_voice_mode(orchestrator, voice=None):
                     # No speech within idle timeout — end session
                     print("Session ended.")
                     active_flag[0] = False
+                    orchestrator.end_session()
                     break
 
                 print(f"You: {transcription}")
@@ -182,6 +185,8 @@ def run_voice_mode(orchestrator, voice=None):
 
     except KeyboardInterrupt:
         print("\n\nShutting down...")
+    finally:
+        orchestrator.end_session()
 
 
 def run_text_mode(orchestrator):
@@ -193,6 +198,7 @@ def run_text_mode(orchestrator):
     _print_loaded_skills(orchestrator)
     print("\n  Type your message. Type 'quit' to exit.\n")
 
+    orchestrator.start_session("text")
     try:
         while True:
             # Drain any scheduled fires that arrived while idle.
@@ -233,6 +239,8 @@ def run_text_mode(orchestrator):
 
     except (KeyboardInterrupt, EOFError):
         print("\nGoodbye!")
+    finally:
+        orchestrator.end_session()
 
 
 def list_skills(orchestrator):
@@ -289,6 +297,8 @@ def main():
     # Initialize orchestrator
     from core.orchestrator import Orchestrator
 
+    archive = SessionArchive()
+
     orchestrator = Orchestrator(
         anthropic_api_key=api_key,
         model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
@@ -300,10 +310,12 @@ def main():
         memory_recall_max_tokens=int(os.getenv("MEMORY_RECALL_MAX_TOKENS", "600")),
         skill_prompt_max_tokens=int(os.getenv("SKILL_PROMPT_MAX_TOKENS", "4000")),
         skill_select_top_k=int(os.getenv("SKILL_SELECT_TOP_K", "2")),
+        archive=archive,
     )
 
     # Inject orchestrator reference for native skills that need to reload
     orchestrator.container_manager._orchestrator = orchestrator
+    orchestrator.container_manager._archive = archive
 
     # --- scheduler wiring ---
     schedules_path = Path.home() / ".miniclaw" / "schedules.yaml"
