@@ -154,3 +154,54 @@ class SessionArchive:
                 conn.close()
         except sqlite3.Error as exc:
             logger.warning("append_turn failed: %s", exc)
+
+    def search(
+        self,
+        query: str,
+        since: str | None = None,
+        limit: int = 5,
+        oversample: int | None = None,
+    ) -> list[dict]:
+        """
+        Full-text search past turns. Returns ranked structured dicts.
+
+        oversample is accepted for forward-compat with a future chromadb
+        rerank layer but is inert in v1 (no reranker → return `limit` hits).
+        """
+        query = (query or "").strip()
+        if not query or not self._available:
+            return []
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT t.id, t.session_id, t.ts, t.role, t.tool_name,
+                           t.content, t.turn_index, turns_fts.rank
+                    FROM turns_fts
+                    JOIN turns t ON t.id = turns_fts.rowid
+                    WHERE turns_fts MATCH ?
+                    ORDER BY turns_fts.rank
+                    LIMIT ?
+                    """,
+                    (query, limit),
+                ).fetchall()
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            logger.warning("search failed: %s", exc)
+            return []
+
+        return [
+            {
+                "turn_id": row[0],
+                "session_id": row[1],
+                "ts": row[2],
+                "role": row[3],
+                "tool_name": row[4],
+                "content": row[5],
+                "context": [],
+                "fts_rank": row[7],
+            }
+            for row in rows
+        ]

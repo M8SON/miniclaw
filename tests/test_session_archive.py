@@ -136,3 +136,53 @@ def test_append_turn_with_no_session_is_noop(archive: SessionArchive) -> None:
     finally:
         conn.close()
     assert count == 0
+
+
+def test_search_returns_structured_dicts(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "user", "tell me about kokoro voices")
+    hits = archive.search("kokoro")
+    assert len(hits) == 1
+    hit = hits[0]
+    assert isinstance(hit, dict)
+    assert {
+        "session_id", "turn_id", "ts", "role", "tool_name",
+        "content", "context", "fts_rank",
+    } <= set(hit.keys())
+    assert hit["role"] == "user"
+    assert "kokoro" in hit["content"]
+
+
+def test_search_no_query_returns_empty(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "user", "anything")
+    assert archive.search("") == []
+
+
+def test_search_no_matches_returns_empty(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "user", "hello world")
+    assert archive.search("nonexistentterm") == []
+
+
+def test_search_respects_limit(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    for i in range(10):
+        archive.append_turn(sid, "user", f"weather forecast for day {i}")
+    hits = archive.search("weather", limit=3)
+    assert len(hits) == 3
+
+
+def test_search_porter_stemming(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "assistant", "we scheduled the meeting")
+    hits = archive.search("scheduling")          # stem match
+    assert len(hits) == 1
+
+
+def test_search_oversample_param_accepted_but_inert_in_v1(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    for i in range(5):
+        archive.append_turn(sid, "user", f"weather forecast {i}")
+    hits = archive.search("weather", limit=2, oversample=20)
+    assert len(hits) == 2                        # v1 still returns limit, not oversample
