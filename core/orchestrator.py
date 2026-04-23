@@ -22,6 +22,7 @@ from core.container_manager import ContainerManager
 from core.conversation_state import ConversationState
 from core.memory_provider import MemoryProvider
 from core.prompt_builder import PromptBuilder
+from core.session_archive import SessionArchive
 from core.skill_selector import SkillSelector
 from core.tool_loop import ToolLoop
 
@@ -62,6 +63,7 @@ class Orchestrator:
         memory_recall_max_tokens: int | None = 600,
         skill_prompt_max_tokens: int | None = 4000,
         skill_select_top_k: int = 2,
+        archive: SessionArchive | None = None,
     ):
         # Claude client
         self.client = anthropic.Anthropic(api_key=anthropic_api_key)
@@ -157,6 +159,61 @@ class Orchestrator:
             "active" if self.skill_selector.available else "unavailable",
         )
 
+        # Session archive (optional — None means "no archive").
+        self.archive = archive
+        self._current_session_id: int | None = None
+
+    def start_session(self, mode: str) -> None:
+        """Begin a new archived conversation arc. Idempotent — second call ends
+        any existing session first."""
+        if self.archive is None:
+            return
+        if self._current_session_id is not None:
+            self.end_session()
+        sid = self.archive.start_session(mode)
+        self._current_session_id = sid if sid else None
+
+    def end_session(self) -> None:
+        """Finalize the current archived session and reset state."""
+        if self.archive is None or self._current_session_id is None:
+            return
+        try:
+            self.archive.end_session(self._current_session_id)
+        except Exception:
+            logger.exception("end_session failed")
+        self._current_session_id = None
+
+    def _archive_callback(
+        self, user_message: str, tool_activity: list[dict], response_text: str
+    ) -> None:
+        """Append a completed turn to the archive. No-op if archive disabled."""
+        if self.archive is None or self._current_session_id is None:
+            return
+        try:
+            sid = self._current_session_id
+            self.archive.append_turn(sid, "user", user_message)
+            for activity in tool_activity:
+                summary = self._format_tool_summary(activity)
+                self.archive.append_turn(sid, "tool", summary, tool_name=activity["name"])
+            if response_text:
+                self.archive.append_turn(sid, "assistant", response_text)
+        except Exception:
+            logger.exception("_archive_callback failed")
+
+    def _format_tool_summary(self, activity: dict) -> str:
+        """Render a tool call as a one-line summary for the archive."""
+        import json as _json
+        try:
+            input_str = _json.dumps(activity.get("input") or {}, separators=(",", ":"))
+        except (TypeError, ValueError):
+            input_str = str(activity.get("input"))
+        result = str(activity.get("result", ""))
+        if len(input_str) > 80:
+            input_str = input_str[:77] + "..."
+        if len(result) > 120:
+            result = result[:117] + "..."
+        return f"{activity.get('name','?')}({input_str}) -> {result}"
+
     def _build_system_prompt(self, user_message: str | None = None) -> str:
         """Build the system prompt, optionally scoped to a user message."""
         prompt = self.prompt_builder.build(
@@ -221,9 +278,12 @@ class Orchestrator:
     def process_message(self, user_message: str) -> str:
         """Process a user message through the tiered intelligence stack."""
         if self._tier_router is None:
-            # OLLAMA_ENABLED=false — Claude-only path, unchanged.
             system_prompt = self._build_system_prompt(user_message=user_message)
-            return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
+            return self.tool_loop.run(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                archive_callback=self._archive_callback,
+            )
 
         route = self._tier_router.route(user_message)
         logger.debug("TierRouter: %s → tier=%s", user_message[:60], route.tier)
@@ -234,7 +294,11 @@ class Orchestrator:
         system_prompt = self._build_system_prompt(user_message=user_message)
 
         if route.tier == "claude":
-            return self.tool_loop.run(user_message=user_message, system_prompt=system_prompt)
+            return self.tool_loop.run(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                archive_callback=self._archive_callback,
+            )
 
         # Ollama tier
         from core.ollama_tool_loop import EscalateSignal, EscalateWithContext
@@ -376,9 +440,10 @@ class Orchestrator:
         conversation contained anything worth keeping, then returns a spoken goodbye.
         """
         if not self.conversation_state.messages:
+            self.end_session()
             return "Goodbye!"
 
-        return self.tool_loop.run(
+        response = self.tool_loop.run(
             user_message=(
                 "The user is ending this conversation. "
                 "If anything worth remembering came up — a preference, a project detail, "
@@ -386,10 +451,14 @@ class Orchestrator:
                 "Then say a brief, warm goodbye."
             ),
             system_prompt=self.system_prompt,
+            archive_callback=self._archive_callback,
         )
+        self.end_session()
+        return response
 
     def reset_conversation(self):
-        """Clear conversation history."""
+        """Clear conversation history and end any open archive session."""
+        self.end_session()
         self.conversation_state.clear()
         logger.info("Conversation history cleared")
 
