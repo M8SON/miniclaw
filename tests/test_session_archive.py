@@ -186,3 +186,51 @@ def test_search_oversample_param_accepted_but_inert_in_v1(archive: SessionArchiv
         archive.append_turn(sid, "user", f"weather forecast {i}")
     hits = archive.search("weather", limit=2, oversample=20)
     assert len(hits) == 2                        # v1 still returns limit, not oversample
+
+
+def test_search_since_filter_excludes_old(archive: SessionArchive) -> None:
+    """Manually insert turns with controlled timestamps to test the since filter."""
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "user", "old weather report")
+    # Backdate the just-inserted turn
+    conn = sqlite3.connect(archive.db_path)
+    try:
+        conn.execute(
+            "UPDATE turns SET ts = '2026-01-01T00:00:00' WHERE session_id = ?",
+            (sid,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    archive.append_turn(sid, "user", "recent weather report")
+    hits = archive.search("weather", since="2026-04-01")
+    assert len(hits) == 1
+    assert "recent" in hits[0]["content"]
+
+
+def test_search_includes_surrounding_context(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "user", "what's the schedule status")
+    archive.append_turn(sid, "assistant", "shipped the cron skill yesterday")
+    archive.append_turn(sid, "tool", "schedule(action=list) -> 3 active tasks", tool_name="schedule")
+    archive.append_turn(sid, "assistant", "you have three active tasks")
+
+    hits = archive.search("cron", limit=1)
+    assert len(hits) == 1
+    context = hits[0]["context"]
+    # Context must include the immediately preceding and following turns
+    context_contents = [c["content"] for c in context]
+    assert "what's the schedule status" in context_contents
+    assert "schedule(action=list) -> 3 active tasks" in context_contents
+
+
+def test_search_context_at_session_boundary(archive: SessionArchive) -> None:
+    """Hits at index 0 should still return without crashing — only forward context exists."""
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "user", "kokoro question")
+    archive.append_turn(sid, "assistant", "kokoro is the tts engine")
+    hits = archive.search("kokoro question", limit=1)
+    assert len(hits) >= 1
+    # No exception, context list returned (may be empty or just forward turn)
+    assert isinstance(hits[0]["context"], list)

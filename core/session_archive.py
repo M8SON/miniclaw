@@ -174,34 +174,73 @@ class SessionArchive:
         try:
             conn = sqlite3.connect(self.db_path)
             try:
-                rows = conn.execute(
-                    """
-                    SELECT t.id, t.session_id, t.ts, t.role, t.tool_name,
-                           t.content, t.turn_index, turns_fts.rank
-                    FROM turns_fts
-                    JOIN turns t ON t.id = turns_fts.rowid
-                    WHERE turns_fts MATCH ?
-                    ORDER BY turns_fts.rank
-                    LIMIT ?
-                    """,
-                    (query, limit),
-                ).fetchall()
+                if since:
+                    rows = conn.execute(
+                        """
+                        SELECT t.id, t.session_id, t.ts, t.role, t.tool_name,
+                               t.content, t.turn_index, turns_fts.rank
+                        FROM turns_fts
+                        JOIN turns t ON t.id = turns_fts.rowid
+                        WHERE turns_fts MATCH ? AND t.ts >= ?
+                        ORDER BY turns_fts.rank
+                        LIMIT ?
+                        """,
+                        (query, since, limit),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT t.id, t.session_id, t.ts, t.role, t.tool_name,
+                               t.content, t.turn_index, turns_fts.rank
+                        FROM turns_fts
+                        JOIN turns t ON t.id = turns_fts.rowid
+                        WHERE turns_fts MATCH ?
+                        ORDER BY turns_fts.rank
+                        LIMIT ?
+                        """,
+                        (query, limit),
+                    ).fetchall()
+
+                hits = []
+                for row in rows:
+                    context = self._fetch_context(conn, row[1], row[6])
+                    hits.append({
+                        "turn_id": row[0],
+                        "session_id": row[1],
+                        "ts": row[2],
+                        "role": row[3],
+                        "tool_name": row[4],
+                        "content": row[5],
+                        "context": context,
+                        "fts_rank": row[7],
+                    })
+                return hits
             finally:
                 conn.close()
         except sqlite3.Error as exc:
             logger.warning("search failed: %s", exc)
             return []
 
+    def _fetch_context(
+        self, conn: sqlite3.Connection, session_id: int, turn_index: int
+    ) -> list[dict]:
+        """Fetch turns at turn_index ± 1 within the same session."""
+        rows = conn.execute(
+            """
+            SELECT ts, role, tool_name, content, turn_index
+            FROM turns
+            WHERE session_id = ? AND turn_index IN (?, ?)
+            ORDER BY turn_index
+            """,
+            (session_id, turn_index - 1, turn_index + 1),
+        ).fetchall()
         return [
             {
-                "turn_id": row[0],
-                "session_id": row[1],
-                "ts": row[2],
-                "role": row[3],
-                "tool_name": row[4],
-                "content": row[5],
-                "context": [],
-                "fts_rank": row[7],
+                "ts": r[0],
+                "role": r[1],
+                "tool_name": r[2],
+                "content": r[3],
+                "turn_index": r[4],
             }
-            for row in rows
+            for r in rows
         ]
