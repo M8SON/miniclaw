@@ -40,15 +40,19 @@ class ToolLoop:
         self.memory_provider = memory_provider
         self.max_rounds = max_rounds
 
-    def run(self, user_message: str, system_prompt: str) -> str:
+    def run(
+        self,
+        user_message: str,
+        system_prompt: str,
+        archive_callback=None,
+    ) -> str:
         """
         Process a user message through Claude with tool support.
 
-        Handles the full tool-use loop:
-          1. Send message + tools to Claude
-          2. If Claude wants to use a tool, execute it
-          3. Send result back to Claude
-          4. Repeat until Claude produces a final text response
+        archive_callback: optional Callable[[str, list[dict], str], None].
+        Called once per completed turn with (user_message, tool_activity,
+        response_text). tool_activity is a list of {"name", "input", "result"}
+        dicts, one per tool call this turn (in order). Fires before prune.
         """
         self.conversation_state.append_user_text(user_message)
         effective_system_prompt = self._augment_system_prompt(
@@ -57,6 +61,7 @@ class ToolLoop:
         )
 
         tool_definitions = self.skill_loader.get_tool_definitions()
+        tool_activity: list[dict] = []
         rounds = 0
 
         while rounds < self.max_rounds:
@@ -71,7 +76,7 @@ class ToolLoop:
             )
 
             if response.stop_reason == "tool_use":
-                tool_results = self._handle_tool_calls(response)
+                tool_results = self._handle_tool_calls(response, tool_activity)
                 self.conversation_state.append_assistant_content(response.content)
                 self.conversation_state.append_tool_results(tool_results)
                 continue
@@ -85,10 +90,20 @@ class ToolLoop:
                 response.usage.input_tokens,
                 response.usage.output_tokens,
             )
+            if archive_callback is not None:
+                try:
+                    archive_callback(user_message, tool_activity, response_text)
+                except Exception:
+                    logger.exception("archive_callback failed")
             self.conversation_state.prune()
             return response_text
 
         logger.warning("Max tool rounds reached (%d)", self.max_rounds)
+        if archive_callback is not None:
+            try:
+                archive_callback(user_message, tool_activity, "")
+            except Exception:
+                logger.exception("archive_callback failed")
         self.conversation_state.prune()
         return "I ran into an issue processing that request. Could you try again?"
 
@@ -109,8 +124,8 @@ class ToolLoop:
             f"{recalled}\n"
         )
 
-    def _handle_tool_calls(self, response) -> list[dict]:
-        """Execute tool calls from Claude's response."""
+    def _handle_tool_calls(self, response, tool_activity: list[dict]) -> list[dict]:
+        """Execute tool calls from Claude's response, appending to tool_activity."""
         tool_results = []
 
         for block in response.content:
@@ -127,6 +142,12 @@ class ToolLoop:
                 result = self._extract_and_save_remember(result)
             else:
                 result = f"Unknown tool: {tool_name}"
+
+            tool_activity.append({
+                "name": tool_name,
+                "input": tool_input,
+                "result": result,
+            })
 
             logger.info("Tool result: %s", result[:200])
             tool_results.append(
