@@ -85,3 +85,41 @@ class SessionArchive:
         except (sqlite3.Error, OSError) as exc:
             logger.warning("SessionArchive disabled: %s", exc)
             self._available = False
+
+    def _now_iso(self) -> str:
+        from datetime import datetime
+        return datetime.now().isoformat(timespec="seconds")
+
+    def start_session(self, mode: str) -> int:
+        if not self._available:
+            return 0
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cur = conn.execute(
+                    "INSERT INTO sessions (started_at, mode) VALUES (?, ?)",
+                    (self._now_iso(), mode),
+                )
+                conn.commit()
+                return int(cur.lastrowid)
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            logger.warning("start_session failed: %s", exc)
+            return 0
+
+    def end_session(self, session_id: int) -> None:
+        if not self._available or not session_id:
+            return
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                conn.execute(
+                    "UPDATE sessions SET ended_at = ? WHERE id = ?",
+                    (self._now_iso(), session_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            logger.warning("end_session failed: %s", exc)
