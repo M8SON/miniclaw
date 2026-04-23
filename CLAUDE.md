@@ -103,7 +103,7 @@ MiniClaw has two first-class execution paths:
 **Docker** — default for stateless, sandboxed skills. Network/text transforms, web queries, API integrations. Isolated, memory-limited, torn down after each call.
 
 **Native** — for skills that need host integration: hardware access, process control, reloading the orchestrator itself, or anything that cannot run in a container. Registered in `container_manager._execute_native_skill`.
-Current native skills: `install_skill`, `set_env_var`, `save_memory`, `dashboard`.
+Current native skills: `install_skill`, `set_env_var`, `save_memory`, `dashboard`, `recall_session`.
 
 When adding a new skill, choose Docker unless host access is genuinely required.
 
@@ -186,6 +186,7 @@ Per-skill overrides for `memory`, `read_only`, `extra_tmpfs`, and `volumes` are 
 
 - **Skill eligibility**: Skills missing required env vars or binaries are tracked in `skill_loader.skipped_skills` with structured reasons including `missing_env_vars: list[str]`. Structurally broken skills are tracked separately in `skill_loader.invalid_skills`. The orchestrator includes both in the system prompt so Claude can distinguish between unavailable and misconfigured capabilities.
 - **`set_env_var` skill**: Native skill that writes a key/value to `.env`, updates `os.environ`, and calls `orchestrator.reload_skills()`. Security constraints: key must match `^[A-Z][A-Z0-9_]*$` and must be in `skill_loader.get_missing_env_vars()` (only keys required by currently skipped skills are accepted). Claude is instructed to read the value back character-by-character and require two voice confirmations before calling the tool.
+- **`recall_session` skill**: Native skill that searches an FTS5 sqlite archive of past conversation turns at `~/.miniclaw/sessions.db` (override via `SESSION_ARCHIVE_PATH`). Every user/assistant/tool turn from voice and text mode is appended via the orchestrator's archive callback as a session-bounded record. Search uses porter+unicode61 tokenizer with BM25 ranking and returns ±1 surrounding turns for context. The archive is failure-tolerant — any sqlite error degrades to a no-op so the voice loop never crashes. Disable entirely by setting `SESSION_ARCHIVE_ENABLED=false`.
 - **`save_memory` skill**: Native skill that writes a markdown note to the memory vault (`MEMORY_VAULT_PATH` env var, default `~/.miniclaw/memory`). Files are named `YYYY-MM-DD_topic_slug.md` with YAML frontmatter. The orchestrator loads vault `.md` files at startup and injects the newest whole notes that fit `MEMORY_MAX_TOKENS` into the system prompt under `--- Remembered from past conversations ---`. This is the Obsidian integration — point Obsidian at the vault directory to browse/edit memories.
 - **System prompt**: Claude is instructed to avoid markdown, asterisks, and emojis (responses go through TTS) and to repeat back unclear transcriptions before acting. Skill instructions are separately budgeted by `SKILL_PROMPT_MAX_TOKENS`; when the full markdown for every skill does not fit, the prompt builder falls back to compact or minimal per-skill summaries rather than dropping skills entirely.
 - **Conversation window**: Short-term conversation history is bounded by `ConversationState(max_messages=..., max_tokens=...)`, configured via `CONVERSATION_MAX_MESSAGES` and `CONVERSATION_MAX_TOKENS`. Retention is turn-aware: it keeps whole recent user requests and their assistant/tool-result exchanges rather than cutting the window in the middle of a turn. Prompt selection uses an approximate token estimator based on serialized message size.
@@ -212,6 +213,9 @@ Per-skill overrides for `memory`, `read_only`, `extra_tmpfs`, and `volumes` are 
 | `SKILL_PROMPT_MAX_TOKENS` | `4000` | Approximate token budget for skill instructions in the system prompt |
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
 | `MEMORY_VAULT_PATH` | `~/.miniclaw/memory` | Directory for Obsidian memory notes |
+| `SESSION_ARCHIVE_PATH` | `~/.miniclaw/sessions.db` | sqlite+FTS5 archive of every conversation turn |
+| `SESSION_ARCHIVE_ENABLED` | `true` | Set false to disable the archive entirely (kill switch) |
+| `SESSION_RECALL_DEFAULT_LIMIT` | `5` | Default max hits returned by the `recall_session` skill |
 
 ## What's Next (from roadmap)
 
