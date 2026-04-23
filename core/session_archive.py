@@ -123,3 +123,34 @@ class SessionArchive:
                 conn.close()
         except sqlite3.Error as exc:
             logger.warning("end_session failed: %s", exc)
+
+    def append_turn(
+        self,
+        session_id: int,
+        role: str,
+        content: str,
+        tool_name: str | None = None,
+    ) -> None:
+        if not self._available or not session_id:
+            return
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                turn_index = conn.execute(
+                    "SELECT COALESCE(MAX(turn_index), -1) + 1 FROM turns WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()[0]
+                conn.execute(
+                    "INSERT INTO turns (session_id, turn_index, ts, role, content, tool_name) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (session_id, turn_index, self._now_iso(), role, content, tool_name),
+                )
+                conn.execute(
+                    "UPDATE sessions SET turn_count = turn_count + 1 WHERE id = ?",
+                    (session_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            logger.warning("append_turn failed: %s", exc)
