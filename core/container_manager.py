@@ -44,6 +44,7 @@ class ContainerManager:
         self._meta_skill_executor = None  # injected from main.py after construction
         self._orchestrator = None          # injected from main.py after construction
         self._schedules_store = None       # injected from main.py after construction
+        self._archive = None               # injected from main.py after construction
         self.docker_available = False
         self.docker_error = None
         self._dashboard_timer: threading.Timer | None = None
@@ -55,6 +56,7 @@ class ContainerManager:
             "dashboard": self._execute_dashboard,
             "soundcloud_play": self._execute_soundcloud,
             "schedule": self._execute_schedule,
+            "recall_session": self._execute_recall_session,
         }
         self._verify_docker()
 
@@ -635,6 +637,82 @@ class ContainerManager:
             pass
 
         return f"Now playing: {title}"
+
+    def _execute_recall_session(self, tool_input: dict) -> str:
+        """Native handler for the recall_session skill."""
+        if self._archive is None:
+            return "Session archive is not initialised."
+
+        query = str(tool_input.get("query", "")).strip()
+        if not query:
+            return "No query provided."
+
+        since = self._parse_since(tool_input.get("since"))
+        try:
+            limit = int(tool_input.get("limit", os.environ.get("SESSION_RECALL_DEFAULT_LIMIT", 5)))
+        except (TypeError, ValueError):
+            limit = 5
+
+        hits = self._archive.search(query, since=since, limit=limit)
+        if not hits:
+            return f"No prior sessions mention '{query}'."
+        return self._format_recall_hits(hits)
+
+    def _parse_since(self, value) -> str | None:
+        """Convert an ISO date or relative phrase to an ISO datetime string. None on failure."""
+        if not value:
+            return None
+        s = str(value).strip().lower()
+        if not s:
+            return None
+
+        from datetime import datetime, timedelta
+        now = datetime.now()
+
+        try:
+            return datetime.fromisoformat(s).isoformat(timespec="seconds")
+        except ValueError:
+            pass
+
+        if s in ("today",):
+            return now.replace(hour=0, minute=0, second=0).isoformat(timespec="seconds")
+        if s in ("yesterday",):
+            return (now - timedelta(days=1)).replace(hour=0, minute=0, second=0).isoformat(timespec="seconds")
+        if s in ("last week", "past week"):
+            return (now - timedelta(days=7)).isoformat(timespec="seconds")
+
+        m = re.match(r"(\d+)\s*days?\s*ago$", s)
+        if m:
+            return (now - timedelta(days=int(m.group(1)))).isoformat(timespec="seconds")
+
+        return None  # unrecognized → fall through to no filter
+
+    def _format_recall_hits(self, hits: list[dict]) -> str:
+        """Render search hits as dated snippets with surrounding context."""
+        blocks = []
+        for hit in hits:
+            lines = []
+            hit_idx = hit["turn_index"]
+            before = [c for c in hit["context"] if c["turn_index"] < hit_idx]
+            after = [c for c in hit["context"] if c["turn_index"] > hit_idx]
+            for c in before:
+                lines.append(self._format_turn_line(c["ts"], c["role"], c.get("tool_name"), c["content"]))
+            lines.append(self._format_turn_line(hit["ts"], hit["role"], hit.get("tool_name"), hit["content"]))
+            for c in after:
+                lines.append(self._format_turn_line(c["ts"], c["role"], c.get("tool_name"), c["content"]))
+            blocks.append("\n".join(lines))
+        return "\n\n".join(blocks)
+
+    def _format_turn_line(self, ts: str, role: str, tool_name: str | None, content: str) -> str:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(ts)
+            stamp = dt.strftime("%Y-%m-%d %H:%M")
+        except (TypeError, ValueError):
+            stamp = ts
+        if role == "tool" and tool_name:
+            return f"[{stamp}] tool ({tool_name}): {content}"
+        return f"[{stamp}] {role}: {content}"
 
     def _execute_schedule(self, tool_input: dict) -> str:
         """Native handler for the `schedule` skill."""

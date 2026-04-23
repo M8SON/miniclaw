@@ -216,6 +216,7 @@ class SessionArchive:
                         "role": row[3],
                         "tool_name": row[4],
                         "content": row[5],
+                        "turn_index": row[6],
                         "context": context,
                         "fts_rank": row[7],
                     })

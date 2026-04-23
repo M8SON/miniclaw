@@ -258,3 +258,12 @@ def test_kill_switch_via_env(tmp_path: Path, monkeypatch) -> None:
     assert archive._available is False
     sid = archive.start_session("text")
     assert sid == 0
+
+
+def test_search_hit_includes_turn_index(archive: SessionArchive) -> None:
+    sid = archive.start_session("text")
+    archive.append_turn(sid, "user", "first")
+    archive.append_turn(sid, "user", "second match")
+    hits = archive.search("match")
+    assert hits and "turn_index" in hits[0]
+    assert hits[0]["turn_index"] == 1
