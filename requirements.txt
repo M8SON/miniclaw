@@ -13,3 +13,6 @@ sounddevice
 PyAudio==0.2.14
 numpy>=1.24
 torch>=2.2.0
+
+# Test
+pytest>=8.0

@@ -51,7 +51,7 @@ if [ ! -x ".venv/bin/python" ]; then
 fi
 
 echo "[test] unit tests"
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m pytest tests/ -v
 
 echo "[test] launcher syntax"
 bash -n run.sh
