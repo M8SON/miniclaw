@@ -70,6 +70,11 @@ class SessionArchive:
         )
         self._reranker = reranker
         self._available = False
+
+        if os.environ.get("SESSION_ARCHIVE_ENABLED", "true").strip().lower() == "false":
+            logger.info("SessionArchive disabled by SESSION_ARCHIVE_ENABLED=false")
+            return
+
         self._init_schema()
 
     def _init_schema(self) -> None:

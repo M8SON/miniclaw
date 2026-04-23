@@ -234,3 +234,27 @@ def test_search_context_at_session_boundary(archive: SessionArchive) -> None:
     assert len(hits) >= 1
     # No exception, context list returned (may be empty or just forward turn)
     assert isinstance(hits[0]["context"], list)
+
+
+def test_unwritable_path_disables_archive_without_raising(tmp_path: Path) -> None:
+    unwritable = tmp_path / "no_such_dir" / "deeper" / "sessions.db"
+    # Make the parent unwritable by creating a file where the dir should be
+    blocker = tmp_path / "no_such_dir"
+    blocker.write_text("not a directory")
+
+    archive = SessionArchive(db_path=unwritable)
+    assert archive._available is False
+    # All ops are no-ops — no raise
+    sid = archive.start_session("text")
+    assert sid == 0
+    archive.append_turn(sid, "user", "x")
+    archive.end_session(sid)
+    assert archive.search("x") == []
+
+
+def test_kill_switch_via_env(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SESSION_ARCHIVE_ENABLED", "false")
+    archive = SessionArchive(db_path=tmp_path / "sessions.db")
+    assert archive._available is False
+    sid = archive.start_session("text")
+    assert sid == 0
