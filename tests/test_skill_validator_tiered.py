@@ -68,5 +68,42 @@ class TestDescriptionValidation(unittest.TestCase):
         self.assertEqual(len(fm["description"]), 1024)
 
 
+from core.skill_eligibility import SkillEligibility
+
+
+class TestRequiresLocation(unittest.TestCase):
+    def setUp(self):
+        self.elig = SkillEligibility()
+
+    def test_requires_read_from_metadata_miniclaw(self):
+        fm = {
+            "name": "foo",
+            "description": "x",
+            "metadata": {
+                "miniclaw": {"requires": {"env": ["NEVER_SET_XYZ_VAR"]}}
+            },
+        }
+        reason, missing = self.elig.check(fm)
+        self.assertIn("NEVER_SET_XYZ_VAR", reason)
+        self.assertEqual(missing, ["NEVER_SET_XYZ_VAR"])
+
+    def test_top_level_requires_ignored_after_migration(self):
+        fm = {
+            "name": "foo",
+            "description": "x",
+            "requires": {"env": ["NEVER_SET_XYZ_VAR"]},  # old location
+        }
+        reason, missing = self.elig.check(fm)
+        # Old top-level requires is NOT read anymore.
+        self.assertIsNone(reason)
+        self.assertEqual(missing, [])
+
+    def test_empty_metadata_miniclaw_is_fine(self):
+        fm = {"name": "foo", "description": "x", "metadata": {}}
+        reason, missing = self.elig.check(fm)
+        self.assertIsNone(reason)
+        self.assertEqual(missing, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,9 @@ Skill eligibility checks for MiniClaw.
 
 Evaluates whether a structurally valid skill can run on the current system
 based on environment variables, binaries, and OS constraints.
+
+The `requires` block lives under `metadata.miniclaw.requires` per the
+agentskills.io compat spec. The old top-level `requires:` key is ignored.
 """
 
 import os
@@ -22,7 +25,11 @@ class SkillEligibility:
         reason is None when the skill is eligible, otherwise a human-readable
         description of the missing requirement(s).
         """
-        requires = frontmatter.get("requires", {})
+        requires = (
+            frontmatter.get("metadata", {})
+            .get("miniclaw", {})
+            .get("requires", {})
+        )
         if not requires:
             return None, []
 
