@@ -121,5 +121,43 @@ class TestPipelineHappyPath(unittest.TestCase):
             self.assertEqual(meta["user_confirmed_env_passthrough"], [])
 
 
+class TestFetch(unittest.TestCase):
+    def test_install_from_url_rejects_bad_scheme(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            install_root = Path(tmp) / "imported"
+            install_root.mkdir()
+            pipeline = InstallPipeline(
+                confirmer=AlwaysApprove(),
+                builder=NoopBuilder(),
+                reloader=NoopReloader(),
+                install_root=install_root,
+            )
+            decision = pipeline.install_from_url("ftp://example.com/foo.tgz", tier="imported")
+            self.assertEqual(decision, InstallDecision.FAILED)
+
+    def test_staging_dir_is_renamed_to_match_declared_name(self):
+        """install_from_path recovers when staging dir name doesn't match SKILL.md name."""
+        with tempfile.TemporaryDirectory() as tmp:
+            # Simulate a git clone that dumped contents into an arbitrary dir name.
+            import shutil
+            oddly_named = Path(tmp) / "random-temp-name"
+            shutil.copytree(FIXTURES / "good-skill", oddly_named)
+
+            install_root = Path(tmp) / "imported"
+            install_root.mkdir()
+
+            pipeline = InstallPipeline(
+                confirmer=AlwaysApprove(),
+                builder=NoopBuilder(),
+                reloader=NoopReloader(),
+                install_root=install_root,
+            )
+            decision = pipeline.install_from_path(oddly_named, tier="imported")
+            self.assertEqual(decision, InstallDecision.INSTALLED)
+            # Final dir must be named by declared name, not staging name.
+            self.assertTrue((install_root / "good-skill").exists())
+            self.assertFalse((install_root / "random-temp-name").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

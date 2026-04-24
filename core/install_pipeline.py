@@ -163,12 +163,43 @@ class InstallPipeline:
         self.validator = SkillValidator()
 
     def install_from_path(self, staging: Path, *, tier: str) -> InstallDecision:
-        """Install a staged skill directory. Staging is copied, not moved."""
+        """Install a staged skill directory. Staging is copied, not moved.
+
+        If the staging directory name doesn't match the declared skill name
+        (common case: git clone into an arbitrary tempdir), the staging dir is
+        moved to match so the validator's parent-dir check passes. This keeps
+        downstream code simple.
+        """
         skill_md = staging / "SKILL.md"
         if not skill_md.exists():
             logger.error("staging %s has no SKILL.md", staging)
             return InstallDecision.FAILED
 
+        # First parse the frontmatter to learn the declared name without
+        # enforcing the parent-dir match yet.
+        try:
+            raw_fm, _ = self.validator.parse_frontmatter(
+                skill_md.read_text(encoding="utf-8")
+            )
+        except Exception as e:
+            logger.error("invalid frontmatter: %s", e)
+            return InstallDecision.FAILED
+        if raw_fm is None:
+            logger.error("invalid YAML frontmatter in staged SKILL.md")
+            return InstallDecision.FAILED
+        declared_name = raw_fm.get("name") if isinstance(raw_fm, dict) else None
+
+        # If the staging dir doesn't match the declared name, rename it.
+        if declared_name and staging.name != declared_name:
+            renamed = staging.parent / declared_name
+            if renamed.exists():
+                logger.error("cannot rename staging dir — %s already exists", renamed)
+                return InstallDecision.FAILED
+            staging.rename(renamed)
+            staging = renamed
+            skill_md = staging / "SKILL.md"
+
+        # Now full validation including parent-dir match.
         try:
             frontmatter, _ = self.validator.validate_markdown(
                 skill_md.read_text(encoding="utf-8"),
@@ -258,3 +289,45 @@ class InstallPipeline:
             logger.error("reload failed: %s", e)
 
         return InstallDecision.INSTALLED
+
+    def install_from_url(self, url: str, *, tier: str) -> InstallDecision:
+        """
+        Fetch a skill from a git repository or tarball URL, then delegate to
+        install_from_path. Supports https URLs only.
+        """
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("https",):
+            logger.error("install_from_url: unsupported scheme %r", parsed.scheme)
+            return InstallDecision.FAILED
+
+        with tempfile.TemporaryDirectory(prefix="miniclaw-install-") as tmp:
+            staging = Path(tmp) / "staging"
+            if url.endswith(".git") or parsed.netloc.endswith("github.com"):
+                result = subprocess.run(
+                    ["git", "clone", "--depth", "1", url, str(staging)],
+                    capture_output=True, text=True, timeout=180,
+                )
+                if result.returncode != 0:
+                    logger.error("git clone failed: %s", result.stderr.strip()[:300])
+                    return InstallDecision.FAILED
+            elif url.endswith((".tar.gz", ".tgz")):
+                import tarfile
+                from urllib.request import urlretrieve
+
+                tarball = Path(tmp) / "archive.tgz"
+                urlretrieve(url, tarball)
+                staging.mkdir()
+                with tarfile.open(tarball) as tar:
+                    for member in tar.getmembers():
+                        if member.name.startswith("/") or ".." in Path(member.name).parts:
+                            logger.error("unsafe tar member path: %r", member.name)
+                            return InstallDecision.FAILED
+                    tar.extractall(staging)
+                entries = list(staging.iterdir())
+                if len(entries) == 1 and entries[0].is_dir():
+                    staging = entries[0]
+            else:
+                logger.error("install_from_url: unknown URL format %r", url)
+                return InstallDecision.FAILED
+
+            return self.install_from_path(staging, tier=tier)
