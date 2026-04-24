@@ -189,5 +189,25 @@ class TestRequiresLocation(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+class TestSelfUpdateScaffolding(unittest.TestCase):
+    def setUp(self):
+        self.v = SkillValidator()
+
+    def test_self_update_flag_parsed(self):
+        raw = (
+            "---\nname: foo\ndescription: x\n"
+            "metadata:\n  miniclaw:\n    self_update:\n      allow_body: true\n---\n\nBody.\n"
+        )
+        fm, _ = self.v.validate_markdown(raw, Path("/tmp/foo"))
+        self.assertTrue(
+            fm["metadata"]["miniclaw"]["self_update"]["allow_body"]
+        )
+
+    def test_self_update_flag_defaults_to_missing(self):
+        raw = "---\nname: foo\ndescription: x\n---\n\nBody.\n"
+        fm, _ = self.v.validate_markdown(raw, Path("/tmp/foo"))
+        self.assertNotIn("metadata", fm)
+
+
 if __name__ == "__main__":
     unittest.main()
