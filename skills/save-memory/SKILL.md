@@ -1,8 +1,7 @@
 ---
-name: save_memory
+name: save-memory
 description: Save something to long-term memory so it can be recalled in future conversations.
 ---
-
 # Save Memory
 
 ## What is worth saving

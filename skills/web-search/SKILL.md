@@ -1,11 +1,12 @@
 ---
-name: search_web
+name: web-search
 description: Search the web for current information, news, facts, or answers to questions
-requires:
-  env:
-    - BRAVE_API_KEY
+metadata:
+  miniclaw:
+    requires:
+      env:
+      - BRAVE_API_KEY
 ---
-
 # Web Search Skill
 
 ## When to use

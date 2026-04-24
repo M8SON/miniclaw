@@ -1,8 +1,8 @@
 ---
-name: recall_session
-description: Search past conversation transcripts. Use when the user references something said in a prior session.
+name: recall-session
+description: Search past conversation transcripts. Use when the user references something
+  said in a prior session.
 ---
-
 Search the local archive of past conversations for content matching a query.
 
 When to use:

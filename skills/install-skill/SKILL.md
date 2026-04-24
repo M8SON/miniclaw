@@ -1,8 +1,9 @@
 ---
-name: install_skill
-description: Install a new skill by describing what it should do. Claude Code will write the skill files, validate them, and walk the user through a three-step voice confirmation before building and loading.
+name: install-skill
+description: Install a new skill by describing what it should do. Claude Code will
+  write the skill files, validate them, and walk the user through a three-step voice
+  confirmation before building and loading.
 ---
-
 # Install Skill
 
 ## When to use

@@ -1,8 +1,7 @@
 ---
-name: skill_tells_random
+name: skill-tells-random
 description: Tell a random joke
 ---
-
 # Random Joke Skill
 
 ## When to use

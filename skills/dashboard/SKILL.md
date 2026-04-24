@@ -1,8 +1,8 @@
 ---
 name: dashboard
-description: Show a visual dashboard on the connected monitor, or close it. Displays news, weather, stocks, and music.
+description: Show a visual dashboard on the connected monitor, or close it. Displays
+  news, weather, stocks, and music.
 ---
-
 # Dashboard Skill
 
 ## When to use

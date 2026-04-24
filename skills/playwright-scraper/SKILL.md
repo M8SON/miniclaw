@@ -1,8 +1,8 @@
 ---
-name: scrape_webpage
-description: Scrape and extract text content from a webpage, including sites with anti-bot protection that block simple HTTP requests
+name: playwright-scraper
+description: Scrape and extract text content from a webpage, including sites with
+  anti-bot protection that block simple HTTP requests
 ---
-
 # Playwright Scraper Skill
 
 ## When to use

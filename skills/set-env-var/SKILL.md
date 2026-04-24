@@ -1,8 +1,8 @@
 ---
-name: set_env_var
-description: Set an environment variable in .env and reload skills. Use this when the user provides an API key or other credential needed by an unavailable skill.
+name: set-env-var
+description: Set an environment variable in .env and reload skills. Use this when
+  the user provides an API key or other credential needed by an unavailable skill.
 ---
-
 # Set Environment Variable
 
 ## When to use

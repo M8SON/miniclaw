@@ -1,8 +1,7 @@
 ---
-name: get_weather
+name: weather
 description: Get current weather information for a specific location
 ---
-
 # Weather Skill
 
 ## When to use

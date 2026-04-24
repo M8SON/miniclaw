@@ -1,8 +1,7 @@
 ---
-name: soundcloud_play
+name: soundcloud
 description: Play music from SoundCloud. Search for and play a song, artist, or genre.
 ---
-
 # SoundCloud Skill
 
 ## When to use

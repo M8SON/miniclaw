@@ -1,8 +1,8 @@
 ---
 name: schedule
-description: Create, list, cancel, or modify recurring scheduled tasks the assistant fires on a cron schedule.
+description: Create, list, cancel, or modify recurring scheduled tasks the assistant
+  fires on a cron schedule.
 ---
-
 # Schedule
 
 Use this skill when the user wants something to happen on a repeating schedule — morning briefings, hourly checks, weekly summaries, and so on. Do not use it for one-shot reminders like "in 10 minutes" (no one-shot support yet).

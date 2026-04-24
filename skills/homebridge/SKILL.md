@@ -1,13 +1,15 @@
 ---
 name: homebridge
-description: Control smart home devices via Homebridge Config UI X. Use to list devices, turn things on/off, adjust brightness, color, temperature, or fan speed.
-requires:
-  env:
-    - HOMEBRIDGE_URL
-    - HOMEBRIDGE_USERNAME
-    - HOMEBRIDGE_PASSWORD
+description: Control smart home devices via Homebridge Config UI X. Use to list devices,
+  turn things on/off, adjust brightness, color, temperature, or fan speed.
+metadata:
+  miniclaw:
+    requires:
+      env:
+      - HOMEBRIDGE_URL
+      - HOMEBRIDGE_USERNAME
+      - HOMEBRIDGE_PASSWORD
 ---
-
 # Homebridge Control
 
 Control HomeKit-compatible smart home devices through the Homebridge Config UI X REST API.
