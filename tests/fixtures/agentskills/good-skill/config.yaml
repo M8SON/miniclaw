@@ -1,0 +1,5 @@
+type: docker
+image: miniclaw/good-skill:latest
+env_passthrough: []
+timeout_seconds: 15
+memory: 128m
