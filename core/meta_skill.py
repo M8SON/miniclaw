@@ -50,12 +50,70 @@ class MetaSkillExecutor:
         self._trigger_build = trigger_build or _trigger_build
         self._cleanup = cleanup or _cleanup
 
+    # ── URL install branch ────────────────────────────────────────────────
+
+    def _install_from_source(self, source: str) -> str:
+        """
+        Voice-driven install of an existing agentskills.io-format skill from
+        a URL or path. Routes through the shared InstallPipeline with a
+        voice-backed confirmer.
+        """
+        from pathlib import Path as _Path
+
+        from core.install_pipeline import (
+            DockerBuilder,
+            InstallDecision,
+            InstallPipeline,
+        )
+        from core.skill_policy import TIER_IMPORTED
+
+        outer = self
+
+        class VoiceConfirmer:
+            def confirm_gate(self, gate: str, summary: str) -> bool:
+                outer._speak(
+                    f"Ready to {gate}. {summary}. "
+                    f"Say 'confirm {gate}' to continue, or 'cancel' to stop."
+                )
+                return outer._confirm(f"confirm {gate}")
+
+        class OrchestratorReloader:
+            def __init__(self, orch):
+                self.orch = orch
+
+            def reload(self):
+                self.orch.reload_skills()
+
+        install_root = _Path.home() / ".miniclaw" / TIER_IMPORTED
+        install_root.mkdir(parents=True, exist_ok=True)
+        pipeline = InstallPipeline(
+            confirmer=VoiceConfirmer(),
+            builder=DockerBuilder(),
+            reloader=OrchestratorReloader(self.orchestrator),
+            install_root=install_root,
+        )
+
+        if source.startswith(("http://", "https://")):
+            decision = pipeline.install_from_url(source, tier=TIER_IMPORTED)
+        else:
+            decision = pipeline.install_from_path(_Path(source), tier=TIER_IMPORTED)
+
+        if decision == InstallDecision.INSTALLED:
+            return "Skill installed."
+        if decision == InstallDecision.CANCELLED:
+            return "Skill install cancelled."
+        return "Skill install failed."
+
     # ── Public entry point ────────────────────────────────────────────────
 
     def run(self, tool_input: dict) -> str:
+        source = tool_input.get("source", "").strip()
+        if source:
+            return self._install_from_source(source)
+
         description = tool_input.get("description", "").strip()
         if not description:
-            return "Please describe what the skill should do."
+            return "Please describe what the skill should do or provide a source URL."
 
         skill_name = _derive_skill_name(description)
         spoken_name = skill_name.replace("_", " ")
