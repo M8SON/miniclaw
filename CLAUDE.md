@@ -89,7 +89,7 @@ Users can add new skills entirely by voice:
 7. Skills hot-reload via `orchestrator.reload_skills()` — no restart required
 
 **Security model:**
-- Claude Code only writes to `skills/<name>/` and `containers/<name>/`
+- Claude Code only writes to `skills/<name>/` (including `skills/<name>/scripts/`)
 - `dockerfile_validator.py` blocks any unsafe Dockerfile instructions
 - `env_passthrough` keys are spoken aloud before build so the user knows what's being granted
 - Cleanup on any failure or cancellation
@@ -103,59 +103,77 @@ MiniClaw has two first-class execution paths:
 **Docker** — default for stateless, sandboxed skills. Network/text transforms, web queries, API integrations. Isolated, memory-limited, torn down after each call.
 
 **Native** — for skills that need host integration: hardware access, process control, reloading the orchestrator itself, or anything that cannot run in a container. Registered in `container_manager._execute_native_skill`.
-Current native skills: `install_skill`, `set_env_var`, `save_memory`, `dashboard`, `recall_session`.
+Current native skills: `install-skill`, `set-env-var`, `save-memory`, `dashboard`, `recall-session`, `schedule`, `soundcloud`.
 
 When adding a new skill, choose Docker unless host access is genuinely required.
 
 ### Skill Structure
 
-Every Docker skill follows the same layout:
+Every skill is a single directory (agentskills.io-compliant). Docker skills keep build assets under `scripts/`.
 
 ```
 skills/<name>/
-    SKILL.md      ← Claude routing instructions
-    config.yaml   ← Container execution config (required)
-
-containers/<name>/
-    app.py        ← Execution logic (reads SKILL_INPUT, prints to stdout)
-    Dockerfile    ← Builds FROM miniclaw/base:latest
+    SKILL.md              ← Claude routing instructions
+    config.yaml           ← Container execution config (optional for native)
+    scripts/              ← Docker build assets (Docker skills only)
+        app.py            ← Reads SKILL_INPUT, prints to stdout
+        Dockerfile        ← FROM miniclaw/base:latest
+    references/           ← Optional, agentskills.io convention
+    assets/               ← Optional, agentskills.io convention
+    .install.json         ← Provenance sidecar (authored/imported tiers only)
 ```
 
-Native skills (no Docker) use `type: native` in `config.yaml` and omit the `image` field. Currently `install_skill` and `set_env_var` use this.
+Skill names are lowercase kebab-case (`web-search`, `recall-session`) and must match the parent directory. Execution tier is inferred from which search path the skill was loaded from:
+
+- `./skills/` → **bundled** — full trust, native execution allowed, no clamps
+- `~/.miniclaw/authored/` → voice-installed via `install-skill`, Docker-only, Dockerfile allowlist
+- `~/.miniclaw/imported/` → community-sourced, Docker-only, stricter config clamps
+
+See `core/skill_policy.py` for the exact per-tier limits (memory/timeout/cpus/devices/volumes).
+
+Native skills (no Docker) use `type: native` in `config.yaml` and omit the `image` field. Only bundled skills may declare `type: native`; authored and imported are Docker-only.
 
 Native skill handlers are registered in `container_manager._execute_native_skill`. Two injected references are available to handlers:
-- `self._meta_skill_executor` — injected in `main.py` (voice mode only), used by `install_skill`
-- `self._orchestrator` — injected in `main.py` for all modes, used by `set_env_var` to call `reload_skills()`
+- `self._meta_skill_executor` — injected in `main.py` (voice mode only), used by `install-skill`
+- `self._orchestrator` — injected in `main.py` for all modes, used by `set-env-var` to call `reload_skills()`
 
-**`SKILL.md`** frontmatter fields:
+**`SKILL.md`** frontmatter fields (agentskills.io-compliant):
 ```yaml
 ---
-name: skill_name
-description: Brief description for Claude
-requires:
-  env: [ENV_VAR_NAME]       # all must be set
-  bins: [binary_name]       # all must exist on PATH
-  anyBins: [a, b]           # at least one must exist
-  os: [linux, darwin]       # OS constraint
+name: skill-name                  # kebab-case; must match parent dir
+description: Brief description    # max 1024 chars
+license: MIT                      # optional (spec field)
+compatibility: Requires X         # optional (spec field)
+metadata:
+  miniclaw:
+    requires:
+      env: [ENV_VAR_NAME]       # all must be set
+      bins: [binary_name]       # all must exist on PATH
+      anyBins: [a, b]           # at least one must exist
+      os: [linux, darwin]       # OS constraint
+    self_update:
+      allow_body: false         # opt-in for future self-improving skills
 ---
 ```
 
 **`config.yaml`** fields for Docker skills:
 ```yaml
+type: docker                      # docker | native
 image: miniclaw/skill-name:latest
 env_passthrough: [ENV_VAR_NAME]
 timeout_seconds: 15
-devices: []                 # e.g. [/dev/snd] for audio skills
+devices: []                       # e.g. [/dev/snd] for audio skills
 # Optional overrides:
-memory: 512m                # override default 256m (e.g. for browser skills)
-read_only: false            # disable read-only filesystem (e.g. for browser skills)
-extra_tmpfs:                # additional tmpfs mounts
+memory: 512m                      # override default 256m
+cpus: 1.0                         # clamped per tier
+read_only: false                  # for skills that need writable fs
+extra_tmpfs:                      # additional tmpfs mounts
   - /dev/shm:size=256m
-volumes:                    # host path mounts (~ and $VAR expanded)
-  - ~/.miniclaw:/miniclaw   # e.g. for shared state between containers
+volumes:                          # host path mounts (authored/imported
+  - ~/.miniclaw/<skill>:/data     # must scope under ~/.miniclaw/<skill>/)
 ```
 
-**`Dockerfile`** always starts with the shared base:
+**`Dockerfile`** (at `skills/<name>/scripts/Dockerfile`) always starts with the shared base:
 ```dockerfile
 FROM miniclaw/base:latest
 # add skill-specific deps here
@@ -173,7 +191,7 @@ CMD ["python", "app.py"]
 - **`miniclaw/playwright-scraper:latest`** — Headless Chromium scraper for JS-rendered and bot-protected sites; runs with `read_only: false`, 512m memory, `/dev/shm` tmpfs
 - **`miniclaw/skill-tells-random:latest`** — Random joke fetcher; example of a voice-installed skill
 
-`run.sh` auto-discovers all `containers/*/Dockerfile` entries and builds missing images — no manual registration needed.
+`run.sh` auto-discovers all `skills/*/scripts/Dockerfile` entries and builds missing images — no manual registration needed.
 
 ### Container Security
 

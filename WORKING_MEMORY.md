@@ -35,8 +35,8 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Skill Split
 
-- Native: `dashboard`, `soundcloud_play`, `install_skill`, `set_env_var`, `save_memory`, `schedule`, `recall_session`
-- Container: `weather`, `web_search`, `playwright_scraper`, `homebridge`, `skill_tells_random`
+- Native: `dashboard`, `soundcloud`, `install-skill`, `set-env-var`, `save-memory`, `schedule`, `recall-session`
+- Container: `weather`, `web-search`, `playwright-scraper`, `homebridge`, `skill-tells-random`
 
 ## Current State
 
@@ -103,7 +103,8 @@ Four enhancements inspired by the Hermes project. `schedule` skill (#1) shipped 
 1. ~~Cron/schedule skill — yaml-backed recurring tasks that fire natural-language prompts through the orchestrator.~~ Done 2026-04-19.
 2. ~~FTS5 session archive — persist past conversations to a sqlite FTS5 index so Claude can recall prior sessions by content search.~~ Done 2026-04-22.
    Forward plan still open: a chromadb rerank layer can drop in via the reserved `reranker` hook on `SessionArchive` once Hailo-8L NPU makes embeddings near-free. Do NOT implement the chromadb path until Hailo arrives — never ship CPU-side embedding on the write path.
-3. agentskills.io compat — align skill loader / manifest format with the agentskills.io registry so community skills are drop-in installable.
+3. ~~agentskills.io compat — align skill loader / manifest format with the agentskills.io registry so community skills are drop-in installable.~~ In progress 2026-04-24.
+   Skill layout migrated (single-directory, kebab-case names matching parent dirs, scripts/ subfolder). Three-tier trust model (bundled/authored/imported) wired into the loader with per-tier Dockerfile + config.yaml clamps. `requires:` now lives under `metadata.miniclaw.requires`. Remaining: shared install pipeline, CLI surface, voice URL install, self-update frontmatter scaffolding.
 4. Self-improving skills — let skills record their own usage outcomes and refine their SKILL.md routing hints over time.
 
 ## Editing Rules

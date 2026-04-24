@@ -120,12 +120,13 @@ def parse_frontmatter(text: str) -> dict:
 
 
 def slugify(name: str) -> str:
-    """Convert name to a safe directory/image slug."""
-    return re.sub(r"[^a-z0-9_]", "_", name.lower()).strip("_")
+    """Convert name to a kebab-case skill/directory slug (agentskills.io-compliant)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug or "skill"
 
 
 def image_name(slug: str) -> str:
-    return slug.replace("_", "-")
+    return slug  # already kebab-case
 
 
 def main():
@@ -148,25 +149,43 @@ def main():
     slug = slugify(raw_name)
     img = image_name(slug)
 
-    # Requirements
+    # Requirements — read from legacy top-level, OpenClaw metadata, or miniclaw metadata.
     requires = fm.get("requires", {}) or {}
-    # Also check OpenClaw metadata block for compatibility
     if not requires:
         requires = fm.get("metadata", {}).get("openclaw", {}).get("requires", {}) or {}
+    if not requires:
+        requires = fm.get("metadata", {}).get("miniclaw", {}).get("requires", {}) or {}
     env_vars = requires.get("env", [])
 
-    # Destination paths
+    # Destination paths — single-directory layout.
     skill_dest = REPO_ROOT / "skills" / slug
-    container_dest = REPO_ROOT / "containers" / slug
-
+    scripts_dest = skill_dest / "scripts"
     skill_dest.mkdir(parents=True, exist_ok=True)
-    container_dest.mkdir(parents=True, exist_ok=True)
+    scripts_dest.mkdir(parents=True, exist_ok=True)
 
-    # ── SKILL.md ──────────────────────────────────────────────────────────
-    shutil.copy(skill_md_path, skill_dest / "SKILL.md")
+    # ── SKILL.md ─────────────────────────────────────────────────────────
+    # Rewrite frontmatter into agentskills.io-compliant form:
+    # name: <kebab-slug>, and move requires under metadata.miniclaw.requires.
+    body = raw.split("---", 2)[-1] if raw.startswith("---") else raw
+    new_fm = {
+        "name": slug,
+        "description": fm.get("description", f"Ported skill {slug}."),
+    }
+    if requires:
+        new_fm["metadata"] = {
+            "miniclaw": {
+                "requires": requires,
+                "self_update": {"allow_body": False},
+            }
+        }
+    (skill_dest / "SKILL.md").write_text(
+        "---\n" + yaml.dump(new_fm, sort_keys=False, default_flow_style=False) + "---\n" + body,
+        encoding="utf-8",
+    )
 
     # ── config.yaml ───────────────────────────────────────────────────────
     config = {
+        "type": "docker",
         "image": f"miniclaw/{img}:latest",
         "env_passthrough": env_vars,
         "timeout_seconds": 30,
@@ -178,39 +197,46 @@ def main():
     # ── scripts/ (copy if present) ────────────────────────────────────────
     scripts_src = source_dir / "scripts"
     has_scripts = scripts_src.is_dir() and any(scripts_src.iterdir())
-
     if has_scripts:
-        scripts_dest = container_dest / "scripts"
-        if scripts_dest.exists():
-            shutil.rmtree(scripts_dest)
-        shutil.copytree(scripts_src, scripts_dest)
+        for item in scripts_src.iterdir():
+            target = scripts_dest / item.name
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            if item.is_dir():
+                shutil.copytree(item, target)
+            else:
+                shutil.copy(item, target)
 
     # ── Dockerfile ────────────────────────────────────────────────────────
     scripts_line = "COPY scripts/ /app/scripts/\n" if has_scripts else ""
     dockerfile = DOCKERFILE_TEMPLATE.format(scripts_line=scripts_line)
-    (container_dest / "Dockerfile").write_text(dockerfile)
+    (scripts_dest / "Dockerfile").write_text(dockerfile)
 
     # ── app.py ────────────────────────────────────────────────────────────
-    template = APP_PY_WITH_SCRIPTS if has_scripts else APP_PY_SKELETON
-    (container_dest / "app.py").write_text(template.format(name=slug))
+    if not (scripts_dest / "app.py").exists():
+        template = APP_PY_WITH_SCRIPTS if has_scripts else APP_PY_SKELETON
+        (scripts_dest / "app.py").write_text(template.format(name=slug))
 
     # ── Summary ───────────────────────────────────────────────────────────
     print(f"\nPorted '{raw_name}' → MiniClaw skill '{slug}'\n")
     print(f"  skills/{slug}/")
-    print(f"    SKILL.md      (copied)")
+    print(f"    SKILL.md      (rewritten: name+description+metadata.miniclaw)")
     print(f"    config.yaml   (generated)")
-    print(f"  containers/{slug}/")
-    print(f"    Dockerfile    (generated)")
+    print(f"    scripts/")
+    print(f"      Dockerfile  (generated)")
     if has_scripts:
-        print(f"    scripts/      (copied from source)")
-        print(f"    app.py        (generated — runs scripts/main.py)")
+        print(f"      app.py      (generated — runs scripts/main.py)")
+        print(f"      <copied scripts>")
     else:
-        print(f"    app.py        (generated — TODO: implement logic)")
+        print(f"      app.py      (generated — TODO: implement logic)")
 
     print("\nNext steps:")
     step = 1
     if not has_scripts:
-        print(f"  {step}. Implement the skill in containers/{slug}/app.py")
+        print(f"  {step}. Implement the skill in skills/{slug}/scripts/app.py")
         step += 1
     if env_vars:
         print(f"  {step}. Add to your .env:")
@@ -218,7 +244,7 @@ def main():
             print(f"       {v}=your_value_here")
         step += 1
     print(f"  {step}. Build and test:")
-    print(f"       docker build -t miniclaw/{img}:latest containers/{slug}/")
+    print(f"       docker build -t miniclaw/{img}:latest skills/{slug}/scripts/")
     print(f"       ./run.sh --list")
     print()
 
