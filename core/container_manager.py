@@ -22,7 +22,7 @@ import urllib.parse
 from datetime import date
 from pathlib import Path
 
-from containers.dashboard.dashboard_defaults import default_hazard_config
+from core.dashboard_defaults import default_hazard_config
 from core.location_preference import resolve_location
 from core.mempalace_bridge import MemPalaceBridge
 from core.scheduler import ScheduleEntry, ScheduleValidationError
@@ -50,13 +50,13 @@ class ContainerManager:
         self._dashboard_timer: threading.Timer | None = None
         self._mpv_process: subprocess.Popen | None = None
         self._native_handlers = {
-            "install_skill": self._execute_install_skill,
-            "set_env_var": self._execute_set_env_var,
-            "save_memory": self._execute_save_memory,
+            "install-skill": self._execute_install_skill,
+            "set-env-var": self._execute_set_env_var,
+            "save-memory": self._execute_save_memory,
             "dashboard": self._execute_dashboard,
-            "soundcloud_play": self._execute_soundcloud,
+            "soundcloud": self._execute_soundcloud,
             "schedule": self._execute_schedule,
-            "recall_session": self._execute_recall_session,
+            "recall-session": self._execute_recall_session,
         }
         self._verify_docker()
 

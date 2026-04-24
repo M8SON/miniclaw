@@ -3,13 +3,21 @@ import importlib
 import importlib.util
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from containers.dashboard.eonet import (
-    build_priority_hazards,
-    fetch_eonet_events,
-    normalize_event,
+
+# Load eonet.py from its post-migration location as a host-side module.
+_EONET_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "skills" / "dashboard" / "scripts" / "eonet.py"
 )
+_spec = importlib.util.spec_from_file_location("_eonet_for_tests", _EONET_PATH)
+_eonet = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_eonet)
+build_priority_hazards = _eonet.build_priority_hazards
+fetch_eonet_events = _eonet.fetch_eonet_events
+normalize_event = _eonet.normalize_event
 
 
 FLASK_AVAILABLE = importlib.util.find_spec("flask") is not None
@@ -243,11 +251,26 @@ STALE_OPEN_EARTHQUAKE = {
 }
 
 
-def _load_dashboard_app(*, missing_feedparser: bool = False):
-    sys.modules.pop("containers.dashboard.app", None)
+_DASHBOARD_APP_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "skills" / "dashboard" / "scripts" / "app.py"
+)
 
+
+def _exec_dashboard_app():
+    sys.modules.pop("containers.dashboard.app", None)
+    spec = importlib.util.spec_from_file_location(
+        "containers.dashboard.app", _DASHBOARD_APP_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["containers.dashboard.app"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_dashboard_app(*, missing_feedparser: bool = False):
     if not missing_feedparser:
-        return importlib.import_module("containers.dashboard.app")
+        return _exec_dashboard_app()
 
     original_import = builtins.__import__
 
@@ -257,7 +280,7 @@ def _load_dashboard_app(*, missing_feedparser: bool = False):
         return original_import(name, globals, locals, fromlist, level)
 
     with patch("builtins.__import__", side_effect=fake_import):
-        return importlib.import_module("containers.dashboard.app")
+        return _exec_dashboard_app()
 
 
 def _default_hazard_config(module, *, enabled: bool = True):

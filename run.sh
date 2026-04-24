@@ -239,13 +239,14 @@ if [ "$DOCKER_READY" = true ]; then
         ok "miniclaw/base:latest (built)"
     fi
 
-    # Auto-discover all skill containers (any containers/<name>/Dockerfile except base)
-    for dockerfile in containers/*/Dockerfile; do
+    # Auto-discover all skill containers (any skills/<name>/scripts/Dockerfile)
+    for dockerfile in skills/*/scripts/Dockerfile; do
+        [ -f "$dockerfile" ] || continue
         dir="$(dirname "$dockerfile")"
-        name="$(basename "$dir")"
-        [ "$name" = "base" ] && continue
+        skill_dir="$(dirname "$dir")"
+        name="$(basename "$skill_dir")"
 
-        image="miniclaw/${name//_/-}:latest"
+        image="miniclaw/${name}:latest"
 
         if docker_run image inspect "$image" &>/dev/null 2>&1; then
             ok "$image"

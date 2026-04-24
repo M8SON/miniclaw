@@ -11,8 +11,7 @@ from unittest.mock import patch
 
 def _load_container_manager(*, missing_flask: bool = False):
     sys.modules.pop("core.container_manager", None)
-    sys.modules.pop("containers.dashboard.app", None)
-    sys.modules.pop("containers.dashboard.dashboard_defaults", None)
+    sys.modules.pop("core.dashboard_defaults", None)
 
     if not missing_flask:
         return importlib.import_module("core.container_manager")
@@ -52,16 +51,14 @@ class ContainerManagerTests(unittest.TestCase):
 
         self.assertTrue(hasattr(container_manager, "ContainerManager"))
 
-    def test_container_manager_import_guard_ignores_cached_dashboard_app_module(self):
+    def test_container_manager_import_guard_ignores_cached_dashboard_defaults_module(self):
         sentinel = object()
-        sys.modules["containers.dashboard.app"] = sentinel
-        sys.modules["containers.dashboard.dashboard_defaults"] = sentinel
+        sys.modules["core.dashboard_defaults"] = sentinel
 
         container_manager = _load_container_manager(missing_flask=True)
 
         self.assertTrue(hasattr(container_manager, "ContainerManager"))
-        self.assertIsNot(sys.modules.get("containers.dashboard.app"), sentinel)
-        self.assertIsNot(sys.modules.get("containers.dashboard.dashboard_defaults"), sentinel)
+        self.assertIsNot(sys.modules.get("core.dashboard_defaults"), sentinel)
 
     def test_set_env_var_writes_repo_root_env(self):
         ContainerManager = _load_container_manager().ContainerManager
@@ -112,7 +109,7 @@ class ContainerManagerTests(unittest.TestCase):
     def test_open_dashboard_includes_default_hazards_in_dashboard_config(self):
         container_manager = _load_container_manager()
         ContainerManager = container_manager.ContainerManager
-        dashboard_defaults = importlib.import_module("containers.dashboard.dashboard_defaults")
+        dashboard_defaults = importlib.import_module("core.dashboard_defaults")
         manager = ContainerManager()
         manager.docker_available = True
 
