@@ -8,10 +8,21 @@ Keeps skill parsing and tool-definition extraction separate from directory
 scanning and eligibility checks.
 """
 
+import os
 import re
 from pathlib import Path
 
 import yaml
+
+from core.skill_policy import (
+    TIER_BUNDLED,
+    TIER_AUTHORED,
+    TIER_IMPORTED,
+    TIER_DEV,
+    policy_for,
+    DEVICE_ALLOWLIST_PATTERNS,
+    is_scoped_volume,
+)
 
 
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -112,29 +123,121 @@ class SkillValidator:
             "required": ["query"],
         }
 
-    def validate_execution_config(self, config: object) -> dict:
+    def validate_execution_config(
+        self,
+        config: object,
+        *,
+        tier: str = TIER_BUNDLED,
+        skill_name: str = "",
+    ) -> dict:
         """
-        Validate config.yaml shape. (Tier-aware clamps added in Task 4.)
+        Validate config.yaml shape and apply tier-specific clamps.
+
+        tier:        one of bundled/authored/imported/dev (see core.skill_policy).
+        skill_name:  the skill's kebab-case name. Required for volume scoping
+                     in authored/imported tiers; may be "" for bundled.
         """
         if not isinstance(config, dict):
             raise ValueError("config.yaml must contain a YAML mapping")
+
+        policy = policy_for(tier)
+
         execution_type = config.get("type", "docker")
         if execution_type not in {"docker", "native"}:
             raise ValueError("config type must be 'docker' or 'native'")
+
         if execution_type == "native":
+            if not policy.allow_native:
+                raise ValueError(
+                    f"type: native is not allowed for tier {tier!r} "
+                    "(only bundled skills may run natively)"
+                )
             if "image" in config:
                 raise ValueError("native skills must not define an image")
         else:
             image = config.get("image")
             if not isinstance(image, str) or not image.strip():
                 raise ValueError("docker skills must define a non-empty image")
+
         self._require_optional_int(config, "timeout_seconds", minimum=1)
         self._require_optional_str(config, "memory")
         self._require_optional_bool(config, "read_only")
         self._require_optional_list_of_strings(config, "env_passthrough")
         self._require_optional_list_of_strings(config, "devices")
         self._require_optional_list_of_strings(config, "extra_tmpfs")
+        self._require_optional_list_of_strings(config, "volumes")
+
+        # Clamps (skip when policy says unlimited)
+        if policy.max_memory_mb is not None:
+            memory_str = config.get("memory")
+            if memory_str is not None:
+                mb = self._parse_memory_to_mb(memory_str)
+                if mb > policy.max_memory_mb:
+                    raise ValueError(
+                        f"memory {memory_str!r} exceeds tier {tier!r} max of "
+                        f"{policy.max_memory_mb}m"
+                    )
+
+        if policy.max_timeout_seconds is not None:
+            timeout = config.get("timeout_seconds")
+            if timeout is not None and timeout > policy.max_timeout_seconds:
+                raise ValueError(
+                    f"timeout_seconds {timeout} exceeds tier {tier!r} max of "
+                    f"{policy.max_timeout_seconds}"
+                )
+
+        if policy.max_cpus is not None:
+            cpus = config.get("cpus")
+            if cpus is not None:
+                try:
+                    cpus_f = float(cpus)
+                except (TypeError, ValueError):
+                    raise ValueError(f"cpus {cpus!r} must be a number")
+                if cpus_f > policy.max_cpus:
+                    raise ValueError(
+                        f"cpus {cpus!r} exceeds tier {tier!r} max of {policy.max_cpus}"
+                    )
+
+        # Device allowlist (only enforced in authored/imported)
+        if tier in (TIER_AUTHORED, TIER_IMPORTED):
+            for device in config.get("devices", []) or []:
+                host_path = device.split(":", 1)[0] if ":" in device else device
+                if not any(p.match(host_path) for p in DEVICE_ALLOWLIST_PATTERNS):
+                    raise ValueError(
+                        f"device {device!r} is not allowed for tier {tier!r}"
+                    )
+
+        # Volume scope check (only enforced in authored/imported)
+        if tier in (TIER_AUTHORED, TIER_IMPORTED):
+            home = os.path.expanduser("~")
+            for vol in config.get("volumes", []) or []:
+                if not is_scoped_volume(vol, skill_name, home):
+                    raise ValueError(
+                        f"volume {vol!r} is out of scope for skill {skill_name!r} "
+                        f"(must resolve under ~/.miniclaw/{skill_name}/)"
+                    )
+
         return config
+
+    @staticmethod
+    def _parse_memory_to_mb(memory_str: str) -> int:
+        """
+        Parse a Docker-style memory spec ('512m', '1g', '1024M') to megabytes.
+
+        Raises ValueError on unparseable input.
+        """
+        m = re.match(r"^\s*(\d+)\s*([mMgGkK]?)\s*$", memory_str)
+        if not m:
+            raise ValueError(f"memory {memory_str!r} is not a valid size")
+        number = int(m.group(1))
+        unit = m.group(2).lower()
+        if unit == "g":
+            return number * 1024
+        if unit == "m" or unit == "":
+            return number
+        if unit == "k":
+            return max(1, number // 1024)
+        raise ValueError(f"unknown memory unit in {memory_str!r}")
 
     def _require_optional_int(self, config, key, minimum=None):
         value = config.get(key)

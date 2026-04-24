@@ -69,6 +69,90 @@ class TestDescriptionValidation(unittest.TestCase):
 
 
 from core.skill_eligibility import SkillEligibility
+from core.skill_policy import TIER_BUNDLED, TIER_AUTHORED, TIER_IMPORTED
+
+
+class TestTieredConfigValidation(unittest.TestCase):
+    def setUp(self):
+        self.v = SkillValidator()
+
+    def _base_config(self):
+        return {
+            "type": "docker",
+            "image": "miniclaw/foo:latest",
+            "env_passthrough": [],
+            "timeout_seconds": 15,
+            "devices": [],
+        }
+
+    def test_native_rejected_for_authored(self):
+        cfg = {"type": "native"}
+        with self.assertRaisesRegex(ValueError, "native.*not allowed"):
+            self.v.validate_execution_config(cfg, tier=TIER_AUTHORED, skill_name="foo")
+
+    def test_native_rejected_for_imported(self):
+        cfg = {"type": "native"}
+        with self.assertRaisesRegex(ValueError, "native.*not allowed"):
+            self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+
+    def test_native_accepted_for_bundled(self):
+        cfg = {"type": "native"}
+        result = self.v.validate_execution_config(cfg, tier=TIER_BUNDLED, skill_name="foo")
+        self.assertEqual(result["type"], "native")
+
+    def test_memory_clamp_imported(self):
+        cfg = self._base_config()
+        cfg["memory"] = "1g"
+        with self.assertRaisesRegex(ValueError, "memory.*exceeds"):
+            self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+
+    def test_memory_under_clamp_authored(self):
+        cfg = self._base_config()
+        cfg["memory"] = "512m"
+        result = self.v.validate_execution_config(cfg, tier=TIER_AUTHORED, skill_name="foo")
+        self.assertEqual(result["memory"], "512m")
+
+    def test_timeout_clamp_imported(self):
+        cfg = self._base_config()
+        cfg["timeout_seconds"] = 90
+        with self.assertRaisesRegex(ValueError, "timeout.*exceeds"):
+            self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+
+    def test_cpus_clamp_imported(self):
+        cfg = self._base_config()
+        cfg["cpus"] = 2.0
+        with self.assertRaisesRegex(ValueError, "cpus.*exceeds"):
+            self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+
+    def test_disallowed_device_imported(self):
+        cfg = self._base_config()
+        cfg["devices"] = ["/dev/kmsg"]
+        with self.assertRaisesRegex(ValueError, "device.*not allowed"):
+            self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+
+    def test_allowed_device_imported(self):
+        cfg = self._base_config()
+        cfg["devices"] = ["/dev/snd", "/dev/i2c-1"]
+        result = self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+        self.assertEqual(result["devices"], ["/dev/snd", "/dev/i2c-1"])
+
+    def test_any_device_bundled(self):
+        cfg = self._base_config()
+        cfg["devices"] = ["/dev/kmsg"]
+        result = self.v.validate_execution_config(cfg, tier=TIER_BUNDLED, skill_name="foo")
+        self.assertEqual(result["devices"], ["/dev/kmsg"])
+
+    def test_unscoped_volume_imported(self):
+        cfg = self._base_config()
+        cfg["volumes"] = ["~:/host"]
+        with self.assertRaisesRegex(ValueError, "volume.*scope"):
+            self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+
+    def test_scoped_volume_imported(self):
+        cfg = self._base_config()
+        cfg["volumes"] = ["~/.miniclaw/foo:/data"]
+        result = self.v.validate_execution_config(cfg, tier=TIER_IMPORTED, skill_name="foo")
+        self.assertEqual(result["volumes"], ["~/.miniclaw/foo:/data"])
 
 
 class TestRequiresLocation(unittest.TestCase):
