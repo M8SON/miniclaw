@@ -18,6 +18,13 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Early dispatch for `miniclaw skill <subcommand>`. Handled before loading
+# the orchestrator stack so the CLI stays responsive and doesn't require
+# Anthropic credentials / audio / etc.
+if len(sys.argv) >= 2 and sys.argv[1] == "skill":
+    from core.skill_cli import main as skill_main
+    sys.exit(skill_main(sys.argv[2:]))
+
 from core.scheduler import SchedulesStore, SchedulerThread
 from core.location_preference import resolve_location
 from core.session_archive import SessionArchive
