@@ -10,6 +10,34 @@ import json
 from core.memory_provider import MemoryProvider
 
 
+SELF_UPDATE_GUIDANCE = """
+Self-improving skills are enabled. Use update_skill_hints when:
+
+  1. NOVEL SUCCESSFUL PHRASING: a user said something the skill's
+     SKILL.md doesn't mention as a trigger phrase, and the skill
+     ran cleanly. Add the phrasing as an example.
+
+  2. ROUTING MISS YOU CORRECTED: you initially called skill X, the
+     user clarified or the result didn't fit, and you re-routed to
+     skill Y. After the user's request is satisfied via skill Y,
+     add a hint to Y about the original phrasing.
+
+Constraints:
+
+  - Additions are short markdown bullets (one line).
+  - Only call update_skill_hints once per skill per turn.
+  - If the phrasing is already covered by existing SKILL.md content,
+    don't call.
+  - Never call on bundled skills whose routing is security-relevant
+    (install-skill, set-env-var, save-memory).
+  - Provide a rationale field naming the user phrasing or pattern
+    that motivated the addition, in 15 words or fewer.
+
+When in doubt, don't call. Auto-learned hints accumulate; bad ones
+take effort to clean up.
+""".strip()
+
+
 class PromptBuilder:
     """Build the full system prompt used for Claude requests."""
 
@@ -99,7 +127,20 @@ class PromptBuilder:
                 "but misconfigured and needs to be fixed before it can run.\n"
             )
 
+        prompt = self.add_self_update_guidance(prompt, skills=skills)
         return prompt
+
+    def add_self_update_guidance(self, prompt: str, *, skills: dict) -> str:
+        """Append standing self-update guidance if any loaded skill has allow_body: true."""
+        any_opted_in = any(
+            (
+                getattr(s, "frontmatter", {}) or {}
+            ).get("metadata", {}).get("miniclaw", {}).get("self_update", {}).get("allow_body") is True
+            for s in skills.values()
+        )
+        if not any_opted_in:
+            return prompt
+        return prompt + "\n\n--- Self-update guidance ---\n" + SELF_UPDATE_GUIDANCE
 
     def _render_with_selector(self, skills: dict, user_message: str) -> str:
         """
