@@ -16,6 +16,11 @@ def _register(dotted_name: str, file_path: Path) -> None:
     Used to keep legacy test imports like `containers.dashboard.eonet` working
     after the agentskills.io migration moved those files to
     `skills/<name>/scripts/`. Creates intermediate package shells as needed.
+
+    If the module's own imports fail (e.g. an optional dep like flask isn't
+    installed in CI), the registration is skipped silently. Tests that need
+    the module will fail with a useful ModuleNotFoundError; tests that don't
+    are unaffected.
     """
     if not file_path.exists():
         return
@@ -30,7 +35,11 @@ def _register(dotted_name: str, file_path: Path) -> None:
     spec = importlib.util.spec_from_file_location(dotted_name, file_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[dotted_name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        # Drop the placeholder so a real attempt later raises naturally.
+        sys.modules.pop(dotted_name, None)
 
 
 # Shims for moved dashboard modules. After migration these live under
