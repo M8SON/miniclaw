@@ -44,6 +44,7 @@ class Skill:
         execution_config: dict,
         skill_dir: str,
         tier: str,
+        frontmatter: dict | None = None,
     ):
         self.name = name
         self.description = description
@@ -52,6 +53,7 @@ class Skill:
         self.execution_config = execution_config
         self.skill_dir = skill_dir
         self.tier = tier
+        self.frontmatter = frontmatter or {}
 
     def __repr__(self):
         return f"Skill(name={self.name!r}, tier={self.tier!r})"
@@ -221,6 +223,7 @@ class SkillLoader:
             execution_config=execution_config,
             skill_dir=str(skill_dir),
             tier=tier,
+            frontmatter=frontmatter,
         )
 
     def _record_invalid_skill(self, name: str, description: str, reason: str) -> None:

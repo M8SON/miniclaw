@@ -100,5 +100,36 @@ class TestThreePaths(unittest.TestCase):
             self.assertEqual(skills["dev-skill"].tier, TIER_DEV)
 
 
+def test_skill_exposes_frontmatter_dict():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_p = Path(tmp)
+        bundled = tmp_p / "bundled"; bundled.mkdir()
+        skill_dir = bundled / "alpha"
+        (skill_dir / "scripts").mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: alpha\ndescription: x.\n"
+            "metadata:\n  miniclaw:\n    self_update:\n      allow_body: true\n"
+            "---\n\n"
+            "## Inputs\n\n```yaml\ntype: object\nproperties: {}\nrequired: []\n```\n\nBody.\n"
+        )
+        (skill_dir / "config.yaml").write_text(yaml.dump({
+            "type": "docker",
+            "image": "miniclaw/alpha:latest",
+            "env_passthrough": [],
+            "timeout_seconds": 15,
+            "devices": [],
+        }))
+        (skill_dir / "scripts" / "Dockerfile").write_text(
+            "FROM miniclaw/base:latest\nCMD [\"python\", \"app.py\"]\n"
+        )
+        (skill_dir / "scripts" / "app.py").write_text("print('ok')\n")
+
+        loader = SkillLoader(search_paths=[bundled])
+        skills = loader.load_all()
+        s = skills["alpha"]
+        assert hasattr(s, "frontmatter")
+        assert s.frontmatter["metadata"]["miniclaw"]["self_update"]["allow_body"] is True
+
+
 if __name__ == "__main__":
     unittest.main()

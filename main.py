@@ -323,6 +323,7 @@ def main():
     # Inject orchestrator reference for native skills that need to reload
     orchestrator.container_manager._orchestrator = orchestrator
     orchestrator.container_manager._archive = archive
+    orchestrator.container_manager._skill_loader_for_self_update = orchestrator.skill_loader
 
     # --- scheduler wiring ---
     schedules_path = Path.home() / ".miniclaw" / "schedules.yaml"
