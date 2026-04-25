@@ -155,5 +155,89 @@ class TestAlreadyCovered(unittest.TestCase):
             self.assertIn("already", r.reason.lower())
 
 
+class TestSectionManagement(unittest.TestCase):
+    def test_creates_auto_section_when_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_p = Path(tmp)
+            skill_dir = _write_skill(tmp_p, "foo", allow_body=True)
+            fm = {"metadata": {"miniclaw": {"self_update": {"allow_body": True}}}}
+            skill = _StubSkill("foo", "bundled", skill_dir, fm)
+            loader = _StubLoader({"foo": skill})
+
+            apply_hint(loader, "foo", "- first auto hint", "rat", turn_id="t1")
+
+            content = (skill_dir / "SKILL.md").read_text()
+            self.assertIn("## Auto-learned routing hints", content)
+            self.assertIn("- first auto hint", content)
+
+    def test_appends_to_existing_auto_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_p = Path(tmp)
+            body = (
+                "# Test\n\n"
+                "## Auto-learned routing hints\n\n"
+                "- existing hint\n"
+            )
+            skill_dir = _write_skill(tmp_p, "foo", allow_body=True, body=body)
+            fm = {"metadata": {"miniclaw": {"self_update": {"allow_body": True}}}}
+            skill = _StubSkill("foo", "bundled", skill_dir, fm)
+            loader = _StubLoader({"foo": skill})
+
+            apply_hint(loader, "foo", "- second hint", "rat", turn_id="t1")
+
+            content = (skill_dir / "SKILL.md").read_text()
+            self.assertIn("- existing hint", content)
+            self.assertIn("- second hint", content)
+            self.assertEqual(content.count("## Auto-learned routing hints"), 1)
+
+    def test_fifo_drops_oldest_at_31st_bullet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_p = Path(tmp)
+            existing = "\n".join(f"- bullet {i}" for i in range(30))
+            body = (
+                "# Test\n\n"
+                "## Auto-learned routing hints\n\n"
+                f"{existing}\n"
+            )
+            skill_dir = _write_skill(tmp_p, "foo", allow_body=True, body=body)
+            fm = {"metadata": {"miniclaw": {"self_update": {"allow_body": True}}}}
+            skill = _StubSkill("foo", "bundled", skill_dir, fm)
+            loader = _StubLoader({"foo": skill})
+
+            r = apply_hint(loader, "foo", "- bullet 30", "rat", turn_id="t1")
+            self.assertEqual(r.status, "ok")
+
+            content = (skill_dir / "SKILL.md").read_text()
+            self.assertNotIn("- bullet 0\n", content)
+            self.assertIn("- bullet 30", content)
+            self.assertIn("- bullet 1\n", content)
+
+    def test_section_inserted_before_subsequent_section(self):
+        """If body has e.g. ## Other after the proposed insert location, preserve it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_p = Path(tmp)
+            body = (
+                "# Test\n\n"
+                "## When to use\n\n"
+                "- a\n\n"
+                "## Auto-learned routing hints\n\n"
+                "- existing\n\n"
+                "## After section\n\n"
+                "tail content\n"
+            )
+            skill_dir = _write_skill(tmp_p, "foo", allow_body=True, body=body)
+            fm = {"metadata": {"miniclaw": {"self_update": {"allow_body": True}}}}
+            skill = _StubSkill("foo", "bundled", skill_dir, fm)
+            loader = _StubLoader({"foo": skill})
+
+            apply_hint(loader, "foo", "- new", "rat", turn_id="t1")
+
+            content = (skill_dir / "SKILL.md").read_text()
+            self.assertIn("- existing", content)
+            self.assertIn("- new", content)
+            self.assertIn("## After section", content)
+            self.assertIn("tail content", content)
+
+
 if __name__ == "__main__":
     unittest.main()
