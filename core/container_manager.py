@@ -13,6 +13,7 @@ import os
 import re
 import json
 import time
+import uuid
 import signal
 import threading
 import subprocess
@@ -45,10 +46,13 @@ class ContainerManager:
         self._orchestrator = None          # injected from main.py after construction
         self._schedules_store = None       # injected from main.py after construction
         self._archive = None               # injected from main.py after construction
+        self._skill_loader_for_self_update = None  # injected from main.py
         self.docker_available = False
         self.docker_error = None
         self._dashboard_timer: threading.Timer | None = None
         self._mpv_process: subprocess.Popen | None = None
+        self._self_update_seen: dict[str, str] = {}
+        self._current_turn_id: str = ""
         self._native_handlers = {
             "install-skill": self._execute_install_skill,
             "set-env-var": self._execute_set_env_var,
@@ -57,8 +61,13 @@ class ContainerManager:
             "soundcloud": self._execute_soundcloud,
             "schedule": self._execute_schedule,
             "recall-session": self._execute_recall_session,
+            "update-skill-hints": self._execute_update_skill_hints,
         }
         self._verify_docker()
+
+    def start_turn(self) -> None:
+        """Bump the turn id used to scope per-turn rate limits."""
+        self._current_turn_id = str(uuid.uuid4())
 
     def _verify_docker(self):
         try:
@@ -657,6 +666,60 @@ class ContainerManager:
         if not hits:
             return f"No prior sessions mention '{query}'."
         return self._format_recall_hits(hits)
+
+    def _execute_update_skill_hints(self, tool_input: dict) -> str:
+        """Apply an additive routing hint to a skill's SKILL.md."""
+        skill_name = str(tool_input.get("skill_name", "")).strip()
+        addition = str(tool_input.get("addition", ""))
+        rationale = str(tool_input.get("rationale", "")).strip()
+
+        if not skill_name or not addition or not rationale:
+            return json.dumps({
+                "status": "rejected",
+                "reason": "skill_name, addition, and rationale are all required",
+            })
+
+        last_turn = self._self_update_seen.get(skill_name)
+        if last_turn == self._current_turn_id and self._current_turn_id:
+            return json.dumps({
+                "status": "rate-limited",
+                "reason": f"already updated {skill_name} this turn",
+            })
+
+        loader = (
+            self._skill_loader_for_self_update
+            or (self._orchestrator.skill_loader if self._orchestrator else None)
+        )
+        if loader is None:
+            return json.dumps({
+                "status": "rejected",
+                "reason": "skill loader not available",
+            })
+
+        # Late import so test patches on core.skill_self_update.apply_hint
+        # take effect even after module reloads (avoids stale package-level
+        # attribute caching on `core`).
+        from core import skill_self_update as ssu
+        result = ssu.apply_hint(
+            loader, skill_name, addition, rationale,
+            turn_id=self._current_turn_id,
+            repo_root=REPO_ROOT,
+        )
+
+        if result.status == "ok":
+            self._self_update_seen[skill_name] = self._current_turn_id
+            if self._orchestrator is not None:
+                try:
+                    self._orchestrator.reload_skills()
+                except Exception:
+                    logger.exception("reload_skills failed after self-update")
+
+        return json.dumps({
+            "status": result.status,
+            "skill": result.skill,
+            "reason": result.reason,
+            "added": result.added,
+        })
 
     def _parse_since(self, value) -> str | None:
         """Convert an ISO date or relative phrase to an ISO datetime string. None on failure."""

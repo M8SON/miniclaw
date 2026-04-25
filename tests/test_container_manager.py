@@ -12,6 +12,7 @@ from unittest.mock import patch
 def _load_container_manager(*, missing_flask: bool = False):
     sys.modules.pop("core.container_manager", None)
     sys.modules.pop("core.dashboard_defaults", None)
+    sys.modules.pop("core.skill_self_update", None)
 
     if not missing_flask:
         return importlib.import_module("core.container_manager")
@@ -452,6 +453,89 @@ class ScheduleNativeHandlerTests(unittest.TestCase):
         out = self.manager._execute_schedule({"action": "bogus"})
         payload = json.loads(out)
         self.assertEqual(payload["status"], "error")
+
+
+def test_update_skill_hints_dispatches_to_handler():
+    container_manager_module = _load_container_manager()
+    manager = container_manager_module.ContainerManager()
+
+    captured = {}
+
+    def fake_apply_hint(loader, skill_name, addition, rationale, *, turn_id, repo_root=None):
+        from core.skill_self_update import SelfUpdateResult
+        captured["skill_name"] = skill_name
+        captured["turn_id"] = turn_id
+        return SelfUpdateResult(status="ok", skill=skill_name, added=addition[:80])
+
+    import core.skill_self_update as ssu
+    orig = ssu.apply_hint
+    ssu.apply_hint = fake_apply_hint
+    try:
+        manager._orchestrator = None
+        manager._skill_loader_for_self_update = type("L", (), {"skills": {}})()
+        manager.start_turn()
+        result_json = manager._execute_update_skill_hints({
+            "skill_name": "weather",
+            "addition": "- forecast",
+            "rationale": "novel phrasing",
+        })
+        assert "ok" in result_json
+        assert captured["skill_name"] == "weather"
+        assert captured["turn_id"]
+    finally:
+        ssu.apply_hint = orig
+
+
+def test_update_skill_hints_rate_limited_within_turn():
+    container_manager_module = _load_container_manager()
+    manager = container_manager_module.ContainerManager()
+    manager._orchestrator = None
+    manager._skill_loader_for_self_update = type("L", (), {"skills": {}})()
+
+    call_count = {"n": 0}
+
+    def fake_apply_hint(loader, skill_name, addition, rationale, *, turn_id, repo_root=None):
+        from core.skill_self_update import SelfUpdateResult
+        call_count["n"] += 1
+        return SelfUpdateResult(status="ok", skill=skill_name, added="x")
+
+    import core.skill_self_update as ssu
+    orig = ssu.apply_hint
+    ssu.apply_hint = fake_apply_hint
+    try:
+        manager.start_turn()
+        manager._execute_update_skill_hints({"skill_name": "weather", "addition": "-x", "rationale": "r"})
+        result_json = manager._execute_update_skill_hints({"skill_name": "weather", "addition": "-y", "rationale": "r"})
+        assert "rate-limited" in result_json
+        assert call_count["n"] == 1
+    finally:
+        ssu.apply_hint = orig
+
+
+def test_update_skill_hints_rate_limit_resets_on_new_turn():
+    container_manager_module = _load_container_manager()
+    manager = container_manager_module.ContainerManager()
+    manager._orchestrator = None
+    manager._skill_loader_for_self_update = type("L", (), {"skills": {}})()
+
+    call_count = {"n": 0}
+
+    def fake_apply_hint(loader, skill_name, addition, rationale, *, turn_id, repo_root=None):
+        from core.skill_self_update import SelfUpdateResult
+        call_count["n"] += 1
+        return SelfUpdateResult(status="ok", skill=skill_name, added="x")
+
+    import core.skill_self_update as ssu
+    orig = ssu.apply_hint
+    ssu.apply_hint = fake_apply_hint
+    try:
+        manager.start_turn()
+        manager._execute_update_skill_hints({"skill_name": "weather", "addition": "-a", "rationale": "r"})
+        manager.start_turn()
+        manager._execute_update_skill_hints({"skill_name": "weather", "addition": "-b", "rationale": "r"})
+        assert call_count["n"] == 2
+    finally:
+        ssu.apply_hint = orig
 
 
 if __name__ == "__main__":
