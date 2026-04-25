@@ -54,6 +54,10 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Recent Durable Milestones
 
+- 2026-04-25: shipped self-improving skills (Hermes roadmap #4)
+  `update-skill-hints` native skill + tool loop 15-call checkpoint + prompt-builder guidance
+  Tier 1 additive only; per-skill per-turn rate limit; FIFO at 30 bullets in the auto-section
+  every change is a git commit; reversal is `git revert`
 - 2026-04-22: shipped FTS5 session archive (`SessionArchive`) and `recall_session` native skill
   every voice/text turn is appended to `~/.miniclaw/sessions.db` (sqlite + FTS5, porter+unicode61, BM25)
   archive is failure-tolerant and gated by `SESSION_ARCHIVE_ENABLED` kill switch
@@ -105,7 +109,8 @@ Four enhancements inspired by the Hermes project. `schedule` skill (#1) shipped 
    Forward plan still open: a chromadb rerank layer can drop in via the reserved `reranker` hook on `SessionArchive` once Hailo-8L NPU makes embeddings near-free. Do NOT implement the chromadb path until Hailo arrives — never ship CPU-side embedding on the write path.
 3. ~~agentskills.io compat — align skill loader / manifest format with the agentskills.io registry so community skills are drop-in installable.~~ In progress 2026-04-24.
    Skill layout migrated (single-directory, kebab-case names matching parent dirs, scripts/ subfolder). Three-tier trust model (bundled/authored/imported) wired into the loader with per-tier Dockerfile + config.yaml clamps. `requires:` now lives under `metadata.miniclaw.requires`. Remaining: shared install pipeline, CLI surface, voice URL install, self-update frontmatter scaffolding.
-4. Self-improving skills — let skills record their own usage outcomes and refine their SKILL.md routing hints over time.
+4. ~~Self-improving skills — let skills record their own usage outcomes and refine their SKILL.md routing hints over time.~~ Done 2026-04-25.
+   Skills with `metadata.miniclaw.self_update.allow_body: true` autonomously gain additive routing hints via the new `update-skill-hints` native skill. Two trigger paths: Claude's in-the-moment judgment plus a 15-tool-call checkpoint nudge. Each change is a path-restricted git commit; rollback is `git revert`. Tier 2/3 changes (rewording, removal) remain manual. Imported-tier skills are blocked regardless of frontmatter.
 
 ## Editing Rules
 
