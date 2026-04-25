@@ -16,6 +16,15 @@ _REMEMBER_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+CHECKPOINT_INTERVAL = 15
+
+CHECKPOINT_NUDGE = (
+    "[CHECKPOINT — {n} tool calls in this turn]\n"
+    "Step back briefly: in the calls so far, did any skill route on a phrasing\n"
+    "that isn't in its SKILL.md? Did you correct a misroute? If so, call\n"
+    "update_skill_hints now before continuing the user's request."
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +63,8 @@ class ToolLoop:
         response_text). tool_activity is a list of {"name", "input", "result"}
         dicts, one per tool call this turn (in order). Fires before prune.
         """
+        if hasattr(self.container_manager, "start_turn"):
+            self.container_manager.start_turn()
         self.conversation_state.append_user_text(user_message)
         effective_system_prompt = self._augment_system_prompt(
             system_prompt=system_prompt,
@@ -63,14 +74,33 @@ class ToolLoop:
         tool_definitions = self.skill_loader.get_tool_definitions()
         tool_activity: list[dict] = []
         rounds = 0
+        last_nudged_at = 0
 
         while rounds < self.max_rounds:
             rounds += 1
 
+            # Build per-round system prompt — checkpoint nudge if we just
+            # crossed a multiple of CHECKPOINT_INTERVAL since last nudge.
+            tool_count = len(tool_activity)
+            current_checkpoint = (tool_count // CHECKPOINT_INTERVAL) * CHECKPOINT_INTERVAL
+            if (
+                current_checkpoint > last_nudged_at
+                and current_checkpoint > 0
+                and self._any_opted_in_skill()
+            ):
+                round_system = (
+                    effective_system_prompt
+                    + "\n\n"
+                    + CHECKPOINT_NUDGE.format(n=current_checkpoint)
+                )
+                last_nudged_at = current_checkpoint
+            else:
+                round_system = effective_system_prompt
+
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
-                system=effective_system_prompt,
+                system=round_system,
                 messages=self.conversation_state.select_messages_for_prompt(),
                 tools=tool_definitions if tool_definitions else anthropic.NOT_GIVEN,
             )
@@ -106,6 +136,17 @@ class ToolLoop:
                 logger.exception("archive_callback failed")
         self.conversation_state.prune()
         return "I ran into an issue processing that request. Could you try again?"
+
+    def _any_opted_in_skill(self) -> bool:
+        for s in self.skill_loader.skills.values():
+            fm = getattr(s, "frontmatter", None) or {}
+            allow = (
+                fm.get("metadata", {}).get("miniclaw", {})
+                  .get("self_update", {}).get("allow_body")
+            )
+            if allow is True:
+                return True
+        return False
 
     def _augment_system_prompt(self, system_prompt: str, user_message: str) -> str:
         """Attach live memory recall relevant to the current user message."""
