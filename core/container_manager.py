@@ -14,6 +14,7 @@ import re
 import json
 import time
 import uuid
+import socket
 import signal
 import threading
 import subprocess
@@ -51,6 +52,7 @@ class ContainerManager:
         self.docker_error = None
         self._dashboard_timer: threading.Timer | None = None
         self._mpv_process: subprocess.Popen | None = None
+        self._mpv_socket_path: str = "/tmp/miniclaw-mpv.sock"
         self._self_update_seen: dict[str, str] = {}
         self._current_turn_id: str = ""
         self._native_handlers = {
@@ -573,6 +575,24 @@ class ContainerManager:
         if action == "close":
             return self._close_dashboard()
         return f"Unknown dashboard action '{action}'. Use 'open' or 'close'."
+
+    def _send_mpv_command(self, args: list) -> dict | None:
+        """Send a JSON IPC command to mpv. Returns parsed response or None on failure."""
+        sock_path = self._mpv_socket_path
+        if not os.path.exists(sock_path):
+            return None
+        payload = json.dumps({"command": args}).encode() + b"\n"
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(2.0)
+                s.connect(sock_path)
+                s.sendall(payload)
+                response = s.recv(4096).decode(errors="replace")
+            if not response:
+                return None
+            return json.loads(response.split("\n")[0])
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def _execute_soundcloud(self, tool_input: dict) -> str:
         """Play or stop music via yt-dlp + mpv on the host."""
