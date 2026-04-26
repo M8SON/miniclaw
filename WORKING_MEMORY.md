@@ -54,6 +54,10 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Recent Durable Milestones
 
+- 2026-04-25: shipped voice transport for SoundCloud music
+  pause / resume / skip / volume on top of existing play / stop
+  20-track queue per play query; mpv IPC for in-flight control
+  intent_patterns.yaml regex dispatch; SKILL.md exposes action enum
 - 2026-04-25: shipped self-improving skills (Hermes roadmap #4)
   `update-skill-hints` native skill + tool loop 15-call checkpoint + prompt-builder guidance
   Tier 1 additive only; per-skill per-turn rate limit; FIFO at 30 bullets in the auto-section
@@ -85,7 +89,8 @@ Update this file when durable project context changes. Do not create overlapping
 
 - `ContainerManager` still uses post-construction injection for `_orchestrator` and `_meta_skill_executor`.
 - Dashboard end-to-end validation on real Pi hardware is still pending.
-- Voice stop/pause control for music is still incomplete.
+- ~~Voice stop/pause control for music is still incomplete.~~ Closed 2026-04-25.
+  soundcloud handler now supports play / stop / pause / resume / skip / volume_up / volume_down via mpv IPC. play queues 20 tracks; transport actions are regex-dispatched through TierRouter (no LLM round-trip). On-Pi validation pending Ollama setup so TierRouter activates.
 - Pi 5 + AI HAT+ 2 dependent work is still blocked on hardware.
 - Memory behavior is structurally aligned now, but still worth validating in practice once more real conversations accumulate.
 - Weather/location memory capture by voice is still skill-prompt driven; there is not yet a dedicated first-class "set my location" tool.
