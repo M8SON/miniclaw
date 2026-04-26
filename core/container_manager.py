@@ -595,18 +595,26 @@ class ContainerManager:
             return None
 
     def _execute_soundcloud(self, tool_input: dict) -> str:
-        """Play or stop music via yt-dlp + mpv on the host."""
+        """Soundcloud transport: play / stop / pause / resume / skip / volume_up / volume_down."""
         import shutil
-        action = str(tool_input.get("action", "play")).strip().lower()
+        action = str(tool_input.get("action") or "play").strip().lower()
+
+        if action == "pause":
+            return self._mpv_action_or_idle(["set_property", "pause", True], "Paused.")
+        if action == "resume":
+            return self._mpv_action_or_idle(["set_property", "pause", False], "Resumed.")
+        if action == "skip":
+            return self._mpv_action_or_idle(["playlist-next"], "Skipped.")
+        if action == "volume_up":
+            return self._mpv_action_or_idle(["add", "volume", 5], "Volume up.")
+        if action == "volume_down":
+            return self._mpv_action_or_idle(["add", "volume", -5], "Volume down.")
 
         if action == "stop":
-            if self._mpv_process and self._mpv_process.poll() is None:
-                self._mpv_process.terminate()
-                self._mpv_process = None
-                now_playing = Path.home() / ".miniclaw" / "now_playing.json"
-                now_playing.unlink(missing_ok=True)
-                return "Stopped."
-            return "Nothing is playing."
+            return self._stop_mpv()
+
+        if action != "play":
+            return f"Unknown action: {action!r}"
 
         query = str(tool_input.get("query", "")).strip()
         if not query:
@@ -617,10 +625,13 @@ class ContainerManager:
         if not shutil.which("mpv"):
             return "mpv not found. Install with: sudo apt install mpv"
 
-        # Stop any currently playing track
-        if self._mpv_process and self._mpv_process.poll() is None:
-            self._mpv_process.terminate()
-            self._mpv_process = None
+        # Stop any currently playing track before queueing a new search.
+        self._terminate_mpv_process()
+        if os.path.exists(self._mpv_socket_path):
+            try:
+                os.unlink(self._mpv_socket_path)
+            except OSError:
+                pass
 
         try:
             result = subprocess.run(
@@ -630,9 +641,9 @@ class ContainerManager:
                     "-f", "bestaudio",
                     "--no-playlist",
                     "--cache-dir", "/tmp/yt-dlp-cache",
-                    f"scsearch1:{query}",
+                    f"scsearch20:{query}",
                 ],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=60,
             )
         except subprocess.TimeoutExpired:
             return f"Search timed out for '{query}'."
@@ -643,29 +654,69 @@ class ContainerManager:
             return f"No results found for '{query}' on SoundCloud."
 
         lines = result.stdout.strip().splitlines()
-        if len(lines) < 2:
+        if len(lines) < 2 or len(lines) % 2 != 0:
             return f"Could not retrieve stream for '{query}'."
 
-        title, stream_url = lines[0], lines[1]
+        pairs = [(lines[i], lines[i + 1]) for i in range(0, len(lines), 2)]
+        first_title = pairs[0][0]
+        urls = [url for _, url in pairs]
 
         self._mpv_process = subprocess.Popen(
-            ["mpv", "--no-video", "--really-quiet", stream_url],
+            [
+                "mpv",
+                "--no-video",
+                "--really-quiet",
+                f"--input-ipc-server={self._mpv_socket_path}",
+                *urls,
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
-        # Write now_playing for dashboard music widget
         now_playing_path = Path.home() / ".miniclaw" / "now_playing.json"
         try:
             import time as _time
+            now_playing_path.parent.mkdir(parents=True, exist_ok=True)
             now_playing_path.write_text(
-                json.dumps({"title": title, "timestamp": _time.time()}),
+                json.dumps({"title": first_title, "timestamp": _time.time()}),
                 encoding="utf-8",
             )
         except OSError:
             pass
 
-        return f"Now playing: {title}"
+        return f"Now playing: {first_title}"
+
+    def _mpv_action_or_idle(self, command: list, success_msg: str) -> str:
+        """Run an mpv IPC command if mpv is alive, else report idle."""
+        if not os.path.exists(self._mpv_socket_path):
+            return "Nothing is playing."
+        self._send_mpv_command(command)
+        return success_msg
+
+    def _terminate_mpv_process(self) -> None:
+        if self._mpv_process and self._mpv_process.poll() is None:
+            self._mpv_process.terminate()
+        self._mpv_process = None
+
+    def _stop_mpv(self) -> str:
+        """Terminate mpv, clean up socket and now-playing files."""
+        was_running = self._mpv_process and self._mpv_process.poll() is None
+        if not was_running and not os.path.exists(self._mpv_socket_path):
+            return "Nothing is playing."
+        if was_running:
+            self._mpv_process.terminate()
+        self._mpv_process = None
+        if os.path.exists(self._mpv_socket_path):
+            try:
+                os.unlink(self._mpv_socket_path)
+            except OSError:
+                pass
+        now_playing = Path.home() / ".miniclaw" / "now_playing.json"
+        try:
+            now_playing.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return "Stopped."
 
     def _execute_recall_session(self, tool_input: dict) -> str:
         """Native handler for the recall_session skill."""
