@@ -54,7 +54,7 @@ The system uses two layers for extensibility:
 
 - Raspberry Pi 5 (8GB or 16GB RAM)
 - NVMe SSD via M.2 HAT+
-- Raspberry Pi AI HAT+ 2 (for Hailo-backed transcription now, Kokoro offload later)
+- Raspberry Pi AI HAT+ 2 (for Hailo-backed wake detection and transcription now, Kokoro offload later)
 - Active cooler
 - USB microphone
 
@@ -89,7 +89,7 @@ Two practical build tiers:
 | Case | ~$10 |
 | **Total** | **~$297** |
 
-Prices are approximate and vary by region and retailer. The AI HAT+ 2 is optional but strongly recommended for always-on deployments — MiniClaw currently uses it for Hailo-backed full transcription, with wake detection and Kokoro acceleration still remaining on the roadmap.
+Prices are approximate and vary by region and retailer. The AI HAT+ 2 is optional but strongly recommended for always-on deployments — MiniClaw currently uses it for Hailo-backed wake detection and full transcription, with Kokoro acceleration still remaining on the roadmap.
 
 ### Yearly Electricity
 
@@ -119,10 +119,11 @@ cp .env.example .env
 
 ## Optional: Hailo Whisper Offload
 
-MiniClaw can offload **full post-wake transcription** to a Raspberry Pi AI HAT+ 2 / Hailo device. The current implementation is hybrid:
+MiniClaw can offload **wake detection and full post-wake transcription** to a Raspberry Pi AI HAT+ 2 / Hailo device. The current implementation is hybrid:
 
-- wake detection stays on CPU Whisper (`WAKE_MODEL`, usually `tiny`)
-- full utterance transcription can run on Hailo (`WHISPER_MODEL`, currently `base`/`tiny` variants)
+- wake detection can run on Hailo Whisper (`WAKE_MODEL`, usually `tiny`)
+- full utterance transcription can run on Hailo Whisper (`WHISPER_MODEL`, currently `base`/`tiny` variants)
+- each path falls back independently, so you can run `wake=hailo` with `transcription=cpu` or the reverse if only one side is ready
 
 ### Pi prerequisites
 
@@ -176,16 +177,23 @@ Run MiniClaw in voice mode:
 ./run.sh --voice
 ```
 
-Expected startup line when Hailo is active:
+Expected startup line when both Hailo paths are active:
 
 ```text
-STT backend: Hybrid Whisper (wake=cpu:tiny, transcription=hailo:base)
+STT backend: Hybrid Whisper (wake=hailo:tiny, transcription=hailo:base)
 ```
 
 Expected fallback line if something is missing:
 
 ```text
-STT backend: CPU Whisper fallback — <reason>
+STT backend: CPU Whisper fallback (wake=cpu:tiny, transcription=cpu:base) — <reason>
+```
+
+You may also see partial fallback combinations such as:
+
+```text
+STT backend: Hybrid Whisper (wake=cpu:tiny, transcription=hailo:base)
+STT backend: Hybrid Whisper (wake=hailo:tiny, transcription=cpu:base)
 ```
 
 If you still see CPU fallback, the likely causes are:
@@ -194,7 +202,7 @@ If you still see CPU fallback, the likely causes are:
 - `~/.miniclaw/models/hailo-whisper/base` is missing assets
 - the selected `WHISPER_MODEL` variant is unsupported by the Hailo path
 
-Current limitation: wake-word detection is still CPU-only. Hailo currently accelerates the heavier full-transcription path after the wake phrase is detected.
+Current limitation: Hailo currently accelerates Whisper only. TierRouter and Kokoro are unchanged, and Kokoro offload is still future work.
 
 System packages are separate because they require privileged OS changes. On Debian/Ubuntu, you can opt into that setup with:
 

@@ -98,7 +98,7 @@ Update this file when durable project context changes. Do not create overlapping
 - Dashboard end-to-end validation on real Pi hardware is still pending.
 - ~~Voice stop/pause control for music is still incomplete.~~ Closed 2026-04-25.
   soundcloud handler now supports play / stop / pause / resume / skip / volume_up / volume_down via mpv IPC. play queues 20 tracks; transport actions are regex-dispatched through TierRouter (no LLM round-trip). On-Pi validation pending Ollama setup so TierRouter activates.
-- Hailo-backed full transcription still needs on-device Pi validation; wake detection offload is not implemented yet.
+- Hailo-backed wake detection and full transcription are both implemented; on-device Pi validation is still pending.
 - Memory behavior is structurally aligned now, but still worth validating in practice once more real conversations accumulate.
 - Weather/location memory capture by voice is still skill-prompt driven; there is not yet a dedicated first-class "set my location" tool.
 

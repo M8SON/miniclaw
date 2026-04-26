@@ -13,7 +13,7 @@ class BuildVoiceInterfaceSelectionTests(unittest.TestCase):
         fake_backend = object()
         mock_build_stt_backend.return_value = (
             fake_backend,
-            "STT backend: Hybrid Whisper (wake=cpu:tiny, transcription=hailo:base)",
+            "STT backend: Hybrid Whisper (wake=hailo:tiny, transcription=hailo:base)",
         )
 
         main.build_voice_interface()
@@ -28,7 +28,10 @@ class BuildVoiceInterfaceSelectionTests(unittest.TestCase):
         self, mock_build_stt_backend, mock_voice_interface, mock_print
     ):
         fake_backend = object()
-        message = "STT backend: CPU Whisper fallback — Hailo runtime unavailable"
+        message = (
+            "STT backend: CPU Whisper fallback "
+            "(wake=cpu:tiny, transcription=cpu:base) — Hailo runtime unavailable"
+        )
         mock_build_stt_backend.return_value = (fake_backend, message)
 
         main.build_voice_interface()

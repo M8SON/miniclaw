@@ -239,8 +239,8 @@ Per-skill overrides for `memory`, `read_only`, `extra_tmpfs`, and `volumes` are 
 
 The next planned items in priority order:
 1. **TTS interruption** — Stop speaking when user talks over the assistant (skipped for now — mic sensitivity makes this unreliable in noisy environments; revisit when fine-tuning for Pi)
-2. **AI HAT+ 2 wake detection integration** — Offload the always-listening whisper-tiny wake loop to Hailo-8L NPU; full post-wake transcription offload is already shipped
-3. **AI HAT+ 2 Kokoro integration** — Offload Kokoro synthesis to NPU; requires compiling model to Hailo Executable Format (.hef)
+2. **AI HAT+ 2 Kokoro integration** — Offload Kokoro synthesis to NPU; requires compiling model to Hailo Executable Format (.hef)
+3. **AI HAT+ 2 memory acceleration** — Explore Hailo-assisted embeddings or reranking for session recall / MemPalace-adjacent retrieval once Pi-side Whisper validation is complete
 4. **GPIO / hardware module skills** — lights, sensors, displays (waiting on Pi hardware)
 5. **Camera + vision skills** via AI HAT+ 2 (waiting on Pi hardware)
 6. **Community skill registry** — a shared repo + install script so users can publish and pull skills

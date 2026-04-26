@@ -12,12 +12,13 @@ from typing import Protocol
 import sounddevice as sd
 import whisper
 from kokoro import KPipeline
-from core.hailo_whisper_runtime import HailoTranscriptionRuntime
+from core.hailo_whisper_runtime import HailoTranscriptionRuntime, HailoWakeRuntime
 
 logger = logging.getLogger(__name__)
 
 KOKORO_SAMPLE_RATE = 24000
 HAILO_WHISPER_ASSET_ROOT = Path.home() / ".miniclaw" / "models" / "hailo-whisper"
+SUPPORTED_HAILO_WHISPER_WAKE_VARIANTS = {"base", "tiny", "tiny.en", "base.en"}
 SUPPORTED_HAILO_WHISPER_TRANSCRIPTION_VARIANTS = {"base", "tiny", "tiny.en", "base.en"}
 
 
@@ -52,18 +53,40 @@ class WhisperBackend:
 
 
 class HybridWhisperBackend:
-    """CPU wake-word detection plus optional Hailo full transcription."""
+    """Independent Hailo/CPU selection for wake and full transcription."""
 
-    def __init__(self, wake_model: str, transcription_model: str):
-        logger.info("Loading Whisper wake model: %s", wake_model)
-        self.wake_model = whisper.load_model(wake_model)
+    def __init__(
+        self,
+        wake_model: str,
+        transcription_model: str,
+        use_hailo_wake: bool,
+        use_hailo_transcription: bool,
+    ):
+        self.use_hailo_wake = use_hailo_wake
+        self.use_hailo_transcription = use_hailo_transcription
 
-        self.hailo_runtime = HailoTranscriptionRuntime(
-            model_name=transcription_model,
-            assets_root=HAILO_WHISPER_ASSET_ROOT,
-        )
+        if use_hailo_wake:
+            self.hailo_wake_runtime = HailoWakeRuntime(
+                model_name=wake_model,
+                assets_root=HAILO_WHISPER_ASSET_ROOT,
+            )
+        else:
+            logger.info("Loading Whisper wake model: %s", wake_model)
+            self.wake_model = whisper.load_model(wake_model)
+
+        if use_hailo_transcription:
+            self.hailo_runtime = HailoTranscriptionRuntime(
+                model_name=transcription_model,
+                assets_root=HAILO_WHISPER_ASSET_ROOT,
+            )
+        else:
+            logger.info("Loading Whisper transcription model: %s", transcription_model)
+            self.transcription_model = whisper.load_model(transcription_model)
 
     def transcribe_wake_audio(self, audio_float) -> str:
+        if self.use_hailo_wake:
+            return self.hailo_wake_runtime.transcribe_wake_audio(audio_float).strip()
+
         result = self.wake_model.transcribe(
             audio_float,
             language="en",
@@ -72,7 +95,11 @@ class HybridWhisperBackend:
         return result["text"].lower().strip()
 
     def transcribe_file(self, audio_file: str) -> str:
-        return self.hailo_runtime.transcribe_file(audio_file).strip()
+        if self.use_hailo_transcription:
+            return self.hailo_runtime.transcribe_file(audio_file).strip()
+
+        result = self.transcription_model.transcribe(audio_file)
+        return result["text"].strip()
 
 
 def hailo_runtime_available() -> bool:
@@ -87,6 +114,28 @@ def hailo_transcription_assets_available(transcription_model: str) -> tuple[bool
     return True, ""
 
 
+def hailo_wake_assets_available(wake_model: str) -> tuple[bool, str]:
+    wake_dir = HAILO_WHISPER_ASSET_ROOT / wake_model
+
+    if not wake_dir.exists():
+        return False, "wake model asset missing"
+    return True, ""
+
+
+def hailo_wake_self_check(wake_model: str) -> None:
+    HailoWakeRuntime.self_check(
+        model_name=wake_model,
+        assets_root=HAILO_WHISPER_ASSET_ROOT,
+    )
+
+
+def hailo_transcription_self_check(transcription_model: str) -> None:
+    HailoTranscriptionRuntime.self_check(
+        model_name=transcription_model,
+        assets_root=HAILO_WHISPER_ASSET_ROOT,
+    )
+
+
 def build_stt_backend(
     wake_model: str, transcription_model: str
 ) -> tuple[SttBackend, str]:
@@ -95,45 +144,63 @@ def build_stt_backend(
             WhisperBackend(
                 wake_model=wake_model, transcription_model=transcription_model
             ),
-            "STT backend: CPU Whisper fallback — Hailo runtime unavailable",
+            f"STT backend: CPU Whisper fallback (wake=cpu:{wake_model}, transcription=cpu:{transcription_model}) — Hailo runtime unavailable",
         )
 
-    if transcription_model not in SUPPORTED_HAILO_WHISPER_TRANSCRIPTION_VARIANTS:
+    use_hailo_wake = False
+    use_hailo_transcription = False
+    fallback_reasons: list[str] = []
+
+    if wake_model in SUPPORTED_HAILO_WHISPER_WAKE_VARIANTS:
+        wake_assets_ok, wake_reason = hailo_wake_assets_available(wake_model)
+        if wake_assets_ok:
+            try:
+                hailo_wake_self_check(wake_model)
+                use_hailo_wake = True
+            except Exception as exc:
+                fallback_reasons.append(f"wake {exc}")
+        else:
+            fallback_reasons.append(wake_reason)
+    else:
+        fallback_reasons.append("wake model variant unsupported by Hailo")
+
+    if transcription_model in SUPPORTED_HAILO_WHISPER_TRANSCRIPTION_VARIANTS:
+        transcription_assets_ok, transcription_reason = (
+            hailo_transcription_assets_available(transcription_model)
+        )
+        if transcription_assets_ok:
+            try:
+                hailo_transcription_self_check(transcription_model)
+                use_hailo_transcription = True
+            except Exception as exc:
+                fallback_reasons.append(f"transcription {exc}")
+        else:
+            fallback_reasons.append(transcription_reason)
+    else:
+        fallback_reasons.append("transcription model variant unsupported by Hailo")
+
+    if not use_hailo_wake and not use_hailo_transcription:
+        reason = fallback_reasons[0] if fallback_reasons else "Hailo unavailable"
         return (
             WhisperBackend(
                 wake_model=wake_model, transcription_model=transcription_model
             ),
-            "STT backend: CPU Whisper fallback — transcription model variant unsupported by Hailo",
+            f"STT backend: CPU Whisper fallback (wake=cpu:{wake_model}, transcription=cpu:{transcription_model}) — {reason}",
         )
 
-    assets_ok, reason = hailo_transcription_assets_available(transcription_model)
-    if not assets_ok:
-        return (
-            WhisperBackend(
-                wake_model=wake_model, transcription_model=transcription_model
-            ),
-            f"STT backend: CPU Whisper fallback — {reason}",
-        )
-
-    try:
-        HailoTranscriptionRuntime.self_check(
-            model_name=transcription_model,
-            assets_root=HAILO_WHISPER_ASSET_ROOT,
-        )
-        backend = HybridWhisperBackend(
-            wake_model=wake_model, transcription_model=transcription_model
-        )
-    except Exception:
-        return (
-            WhisperBackend(
-                wake_model=wake_model, transcription_model=transcription_model
-            ),
-            "STT backend: CPU Whisper fallback — Hailo self-check failed",
-        )
-
+    backend = HybridWhisperBackend(
+        wake_model=wake_model,
+        transcription_model=transcription_model,
+        use_hailo_wake=use_hailo_wake,
+        use_hailo_transcription=use_hailo_transcription,
+    )
+    wake_backend = f"{'hailo' if use_hailo_wake else 'cpu'}:{wake_model}"
+    transcription_backend = (
+        f"{'hailo' if use_hailo_transcription else 'cpu'}:{transcription_model}"
+    )
     return (
         backend,
-        f"STT backend: Hybrid Whisper (wake=cpu:{wake_model}, transcription=hailo:{transcription_model})",
+        f"STT backend: Hybrid Whisper (wake={wake_backend}, transcription={transcription_backend})",
     )
 
 

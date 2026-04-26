@@ -39,6 +39,8 @@ class RuntimeAssets:
 
 
 class HailoTranscriptionRuntime:
+    asset_kind = "transcription"
+
     def __init__(self, model_name: str, assets_root: Path, hw_arch: str | None = None):
         self.model_name = model_name
         self.assets_root = Path(assets_root)
@@ -63,7 +65,7 @@ class HailoTranscriptionRuntime:
     ) -> RuntimeAssets:
         model_dir = assets_root / model_name
         if not model_dir.exists():
-            raise RuntimeError("transcription model asset missing")
+            raise RuntimeError(f"{cls.asset_kind} model asset missing")
 
         decoder_assets_dir = model_dir / "decoder_assets"
         token_embedding_weight = (
@@ -71,17 +73,17 @@ class HailoTranscriptionRuntime:
         )
         onnx_add_input = decoder_assets_dir / f"onnx_add_input_{model_name}.npy"
         if not token_embedding_weight.exists() or not onnx_add_input.exists():
-            raise RuntimeError("transcription model asset missing")
+            raise RuntimeError(f"{cls.asset_kind} model asset missing")
 
         hefs_root = model_dir / "hefs"
         selected_arch = hw_arch or cls._auto_detect_hw_arch(hefs_root, model_name)
         if selected_arch is None:
-            raise RuntimeError("transcription model HEF missing")
+            raise RuntimeError(f"{cls.asset_kind} model HEF missing")
 
         encoder_hef = cls._resolve_encoder_hef(hefs_root / selected_arch, model_name)
         decoder_hef = cls._resolve_decoder_hef(hefs_root / selected_arch, model_name)
         if encoder_hef is None or decoder_hef is None:
-            raise RuntimeError("transcription model HEF missing")
+            raise RuntimeError(f"{cls.asset_kind} model HEF missing")
 
         return RuntimeAssets(
             model_dir=model_dir,
@@ -167,12 +169,15 @@ class HailoTranscriptionRuntime:
 
     def transcribe_file(self, audio_file: str) -> str:
         audio = whisper.load_audio(audio_file)
+        return self._clean_transcription(" ".join(self._transcribe_audio_chunks(audio)))
+
+    def _transcribe_audio_chunks(self, audio: np.ndarray) -> list[str]:
         texts: list[str] = []
         for mel in self._iter_mel_chunks(audio):
             text = self._transcribe_mel_chunk(mel)
             if text:
                 texts.append(text)
-        return self._clean_transcription(" ".join(texts))
+        return texts
 
     def _iter_mel_chunks(self, audio: np.ndarray):
         chunk_seconds = CHUNK_SECONDS_BY_MODEL.get(self.model_name, 5)
@@ -308,3 +313,11 @@ class HailoTranscriptionRuntime:
         if cleaned and cleaned[-1] not in ".?":
             cleaned += "."
         return cleaned
+
+
+class HailoWakeRuntime(HailoTranscriptionRuntime):
+    asset_kind = "wake"
+
+    def transcribe_wake_audio(self, audio_float) -> str:
+        audio = np.asarray(audio_float, dtype=np.float32).flatten()
+        return " ".join(self._transcribe_audio_chunks(audio)).lower().strip()
