@@ -8,7 +8,7 @@ croniter>=2.0.0
 
 # Voice (optional - not needed for text mode)
 openai-whisper>=20240930
-kokoro>=0.9.4
+kokoro @ git+https://github.com/hexgrad/kokoro.git@dfb907a02bba8152ca444717ca5d78747ccb4bec
 sounddevice
 PyAudio==0.2.14
 numpy>=1.24
