@@ -322,6 +322,9 @@ class InstallPipeline:
                         if member.name.startswith("/") or ".." in Path(member.name).parts:
                             logger.error("unsafe tar member path: %r", member.name)
                             return InstallDecision.FAILED
+                        if member.issym() or member.islnk():
+                            logger.error("unsafe tar member type: %r", member.name)
+                            return InstallDecision.FAILED
                     tar.extractall(staging)
                 entries = list(staging.iterdir())
                 if len(entries) == 1 and entries[0].is_dir():

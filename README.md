@@ -106,7 +106,7 @@ Running costs are negligible — the hardware pays for itself in utility long be
 ```bash
 git clone https://github.com/M8SON/MiniClaw.git
 cd MiniClaw
-./run.sh --install-system-deps  # Debian/Ubuntu only: installs Docker + espeak-ng
+./run.sh --install-system-deps  # Debian/Ubuntu only: installs Docker + audio system deps
 cp .env.example .env
 # Edit .env with your API keys
 ./run.sh          # text mode (default, no microphone needed)
@@ -122,7 +122,7 @@ System packages are separate because they require privileged OS changes. On Debi
 ./run.sh --install-system-deps
 ```
 
-That installs `docker.io` and `espeak-ng`, then starts the Docker service.
+That installs `docker.io`, `espeak-ng`, `mpv`, and `portaudio19-dev`, then starts the Docker service.
 
 On systems where Docker was just installed, `run.sh` also adds the current user to the `docker` group. If the current shell has not picked up the new group yet, the launcher will try to continue automatically via `sg docker` for that run.
 

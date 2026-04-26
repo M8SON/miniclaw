@@ -5,7 +5,7 @@
 #   ./run.sh                       # text mode (default)
 #   ./run.sh --voice               # voice mode
 #   ./run.sh --list                # list skills and exit
-#   ./run.sh --install-system-deps # install Docker + espeak-ng on Debian/Ubuntu
+#   ./run.sh --install-system-deps # install Docker/audio deps on Debian/Ubuntu
 
 set -e
 
@@ -124,12 +124,12 @@ install_system_deps() {
     fi
 
     if ! command -v sudo &>/dev/null; then
-        fail "sudo not found — install Docker and espeak-ng manually"
+        fail "sudo not found — install Docker and audio dependencies manually"
     fi
 
-    echo "  Installing system packages (docker.io, espeak-ng, mpv)..."
+    echo "  Installing system packages (docker.io, espeak-ng, mpv, portaudio19-dev)..."
     sudo apt-get update
-    sudo apt-get install -y docker.io espeak-ng mpv
+    sudo apt-get install -y docker.io espeak-ng mpv portaudio19-dev
     sudo systemctl enable --now docker
     ensure_docker_group_membership
     ok "system dependencies installed"
@@ -166,7 +166,7 @@ ok "venv active"
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
-if ! python3 -c "import anthropic, dotenv, yaml" &>/dev/null 2>&1; then
+if ! python3 -c "import anthropic, chromadb, dotenv, pyaudio, whisper, yaml" &>/dev/null 2>&1; then
     echo "  Installing dependencies..."
     pip install -r requirements.txt -q
     ok "dependencies installed"
