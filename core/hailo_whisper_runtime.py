@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import whisper
 from whisper import tokenizer as whisper_tokenizer
+
+# Whisper task/language/special tokens (e.g. <|en|>, <|transcribe|>,
+# <|notimestamps|>, <|nospeech|>, <|0.00|>) leak through the Hailo decoder
+# because tokenizer.decode() does not strip them. CPU Whisper hides them
+# inside its higher-level decoder; here we filter post-decode.
+_WHISPER_SPECIAL_TOKEN_RE = re.compile(r"<\|[^|]*\|>")
 
 try:
     from hailo_platform import HEF, FormatType, HailoSchedulingAlgorithm, VDevice
@@ -271,7 +278,9 @@ class HailoTranscriptionRuntime:
                         generated_tokens.append(next_token)
                         decoder_input_ids[0, i + 1] = next_token
 
-        return self.tokenizer.decode(generated_tokens).strip()
+        text = self.tokenizer.decode(generated_tokens)
+        text = _WHISPER_SPECIAL_TOKEN_RE.sub("", text)
+        return " ".join(text.split()).strip()
 
     def _tokenization(self, decoder_input_ids: np.ndarray) -> np.ndarray:
         gather_output = self.token_embedding_weight[decoder_input_ids]
