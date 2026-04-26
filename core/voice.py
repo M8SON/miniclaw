@@ -17,6 +17,7 @@ import numpy as np
 import pyaudio
 import sounddevice as sd
 
+from core.audio_devices import resolve_input_device, resolve_output_device
 from core.voice_backends import KOKORO_SAMPLE_RATE, KokoroTTSBackend, WhisperBackend
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,9 @@ class VoiceInterface:
         self.silence_duration = silence_duration
         self.wake_phrase = wake_phrase.lower().strip()
 
+        self._input_device_index = resolve_input_device()
+        self._output_device_index = resolve_output_device()
+
         # Shared PyAudio stream passed from wake detection to listen()
         # to avoid the teardown/setup gap between the two phases.
         self._shared_audio = None
@@ -71,7 +75,15 @@ class VoiceInterface:
         self.tts_backend = (
             tts_backend
             if tts_backend is not None
-            else (KokoroTTSBackend(voice=tts_voice, speed=tts_speed) if enable_tts else None)
+            else (
+                KokoroTTSBackend(
+                    voice=tts_voice,
+                    speed=tts_speed,
+                    output_device=self._output_device_index,
+                )
+                if enable_tts
+                else None
+            )
         )
 
         logger.info("Models loaded — wake phrase: '%s'", self.wake_phrase)
@@ -93,6 +105,7 @@ class VoiceInterface:
             channels=self.CHANNELS,
             rate=self.RATE,
             input=True,
+            input_device_index=self._input_device_index,
             frames_per_buffer=self.CHUNK,
         )
 
@@ -222,7 +235,7 @@ class VoiceInterface:
                 self._r2_beep(1500, 0.06), gs,
                 self._r2_beep(2200, 0.10, volume=0.5),
             ])
-            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE)
+            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE, device=self._output_device_index)
             sd.wait()
         except Exception as e:
             logger.warning("Startup sound error: %s", e)
@@ -247,7 +260,7 @@ class VoiceInterface:
                 g,
                 self._r2_beep(1650, 0.07),
             ])
-            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE)
+            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE, device=self._output_device_index)
             sd.wait()
         except Exception as e:
             logger.warning("Thinking sound error: %s", e)
@@ -286,6 +299,7 @@ class VoiceInterface:
                 channels=self.CHANNELS,
                 rate=self.RATE,
                 input=True,
+                input_device_index=self._input_device_index,
                 frames_per_buffer=self.CHUNK,
             )
 

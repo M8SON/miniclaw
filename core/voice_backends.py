@@ -209,16 +209,25 @@ class KokoroTTSBackend:
 
     sample_rate = KOKORO_SAMPLE_RATE
 
-    def __init__(self, voice: str = "af_heart", speed: float = 1.0):
+    def __init__(
+        self,
+        voice: str = "af_heart",
+        speed: float = 1.0,
+        output_device: int | None = None,
+    ):
         logger.info("Loading Kokoro TTS pipeline (voice: %s)...", voice)
         self.voice = voice
         self.speed = speed
+        self.output_device = output_device
         self.pipeline = KPipeline(lang_code="a")
 
     def speak(self, text: str) -> None:
         """Stream generated speech directly to the output device."""
         with sd.OutputStream(
-            samplerate=self.sample_rate, channels=1, dtype="float32"
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="float32",
+            device=self.output_device,
         ) as stream:
             for _, _, audio in self.pipeline(text, voice=self.voice, speed=self.speed):
                 stream.write(audio)
