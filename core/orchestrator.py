@@ -286,7 +286,7 @@ class Orchestrator:
             )
 
         route = self._tier_router.route(user_message)
-        logger.debug("TierRouter: %s → tier=%s", user_message[:60], route.tier)
+        logger.info("TierRouter: %s → tier=%s", user_message[:60], route.tier)
 
         if route.tier == "direct":
             return self._execute_direct(route, user_message)
