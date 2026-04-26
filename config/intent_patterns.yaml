@@ -45,5 +45,8 @@ escalate:
   # Long explanation requests — likely complex
   - "\\bexplain\\b.{25,}"
 
-  # Multi-step or compound requests
-  - "\\b(first|then|after that|and also|as well as)\\b.{10,}"
+  # Multi-step or compound requests. "first" and "then" are intentionally
+  # excluded — they're everyday discourse markers ("why are you slow, then?")
+  # that almost never indicate a sequenced request and were misclassifying
+  # routine queries as needing Claude.
+  - "\\b(after that|and also|as well as)\\b.{10,}"
