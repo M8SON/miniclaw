@@ -10,7 +10,7 @@ Before relying on stale handoff notes, read `WORKING_MEMORY.md` in the repo root
 
 MiniClaw is a modular, skill-based voice assistant designed for Raspberry Pi. Skills are defined as markdown files and executed in sandboxed Docker containers. Claude API handles reasoning and tool selection.
 
-**Target hardware:** Raspberry Pi 5 (8-16GB RAM) with NVMe SSD, Raspberry Pi AI HAT+ 2 (Hailo-8L NPU for accelerated Whisper + Kokoro TTS), USB microphone, and speaker.
+**Target hardware:** Raspberry Pi 5 (8-16GB RAM) with NVMe SSD, Raspberry Pi AI HAT+ 2 (Hailo-8L NPU for Hailo-backed full transcription now, with wake detection and Kokoro acceleration still on the roadmap), USB microphone, and speaker.
 
 ## Running the Project
 
@@ -239,13 +239,13 @@ Per-skill overrides for `memory`, `read_only`, `extra_tmpfs`, and `volumes` are 
 
 The next planned items in priority order:
 1. **TTS interruption** — Stop speaking when user talks over the assistant (skipped for now — mic sensitivity makes this unreliable in noisy environments; revisit when fine-tuning for Pi)
-2. **AI HAT+ 2 Whisper integration** — Offload whisper-tiny and whisper-base to Hailo-8L NPU; biggest single latency win (currently 3-5s per transcription on CPU)
+2. **AI HAT+ 2 wake detection integration** — Offload the always-listening whisper-tiny wake loop to Hailo-8L NPU; full post-wake transcription offload is already shipped
 3. **AI HAT+ 2 Kokoro integration** — Offload Kokoro synthesis to NPU; requires compiling model to Hailo Executable Format (.hef)
 4. **GPIO / hardware module skills** — lights, sensors, displays (waiting on Pi hardware)
 5. **Camera + vision skills** via AI HAT+ 2 (waiting on Pi hardware)
 6. **Community skill registry** — a shared repo + install script so users can publish and pull skills
 
-Items 2-6 are blocked on hardware. Mason is planning to purchase a Raspberry Pi 5 and AI HAT+ 2 soon.
+Items 2-6 still depend on real Pi/Hailo validation and follow-on hardware work.
 
 ## Session History
 
