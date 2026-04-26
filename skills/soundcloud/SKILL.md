@@ -1,25 +1,37 @@
 ---
 name: soundcloud
-description: Play music from SoundCloud. Search for and play a song, artist, or genre.
+description: Play, stop, pause, resume, skip, or adjust volume on SoundCloud music. A play
+  request queues 20 tracks matching the query; subsequent skip commands advance through
+  the queue.
 ---
 # SoundCloud Skill
 
 ## When to use
-Use this skill when the user asks to play music, a song, an artist, or a genre.
-Also use when the user says things like "put on some jazz" or "play something by Radiohead".
+
+- **Play music** — "play [song/artist/genre]", "put on some [genre]", "I want to hear [X]"
+- **Stop** — "stop the music", "stop playing", "halt the audio"
+- **Pause / resume** — "pause the music", "resume", "unpause", "continue music"
+- **Skip** — "skip", "next song", "skip this track"
+- **Volume** — "volume up", "louder", "turn it down"
 
 ## Inputs
 
 ```yaml
 type: object
 properties:
+  action:
+    type: string
+    enum: [play, stop, pause, resume, skip, volume_up, volume_down]
+    description: The transport command to issue. Defaults to play.
   query:
     type: string
-    description: Song name, artist, or genre to play (e.g., 'Bohemian Rhapsody', 'lofi hip hop', 'Arctic Monkeys')
+    description: Song name, artist, or genre. Required when action is play.
 required:
-  - query
+  - action
 ```
 
 ## How to respond
-Confirm what is playing. Example: "Playing Bohemian Rhapsody by Queen."
-If no matching track is found, let the user know and suggest trying different search terms.
+
+For play, confirm the genre/song. For stop / pause / resume / skip / volume, brief
+acknowledgement ("Stopped.", "Paused.", "Resumed.", "Skipped.", "Volume up."). If
+nothing is playing for a transport command, say so plainly.
