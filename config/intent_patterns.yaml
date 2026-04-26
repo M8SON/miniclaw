@@ -7,16 +7,28 @@
 # Dispatch is checked first, then escalate, then Ollama is used as default.
 
 dispatch:
-  - pattern: "^(stop|pause|halt)(\\s+music|\\s+playing|\\s+audio)?[.!?]?$"
-    skill: soundcloud_play
+  - pattern: "^(stop|halt)(\\s+(the\\s+)?(music|playing|audio))?[.!?]?$"
+    skill: soundcloud
     args: {action: stop}
 
+  - pattern: "^pause(\\s+(the\\s+)?(music|playing|audio))?[.!?]?$"
+    skill: soundcloud
+    args: {action: pause}
+
+  - pattern: "^(resume|continue|unpause)(\\s+(the\\s+)?(music|playing|audio))?[.!?]?$"
+    skill: soundcloud
+    args: {action: resume}
+
+  - pattern: "^(skip|next)(\\s+(this\\s+)?(song|track))?[.!?]?$"
+    skill: soundcloud
+    args: {action: skip}
+
   - pattern: "^(volume up|turn it up|louder)[.!?]?$"
-    skill: soundcloud_play
+    skill: soundcloud
     args: {action: volume_up}
 
   - pattern: "^(volume down|turn it down|quieter|lower the volume)[.!?]?$"
-    skill: soundcloud_play
+    skill: soundcloud
     args: {action: volume_down}
 
   - pattern: "^(goodbye|bye|good night|stop listening|exit|shut down)[.!?]?$"
