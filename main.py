@@ -28,6 +28,7 @@ if len(sys.argv) >= 2 and sys.argv[1] == "skill":
 from core.scheduler import SchedulesStore, SchedulerThread
 from core.location_preference import resolve_location
 from core.session_archive import SessionArchive
+from core.voice_backends import build_stt_backend
 
 load_dotenv()
 
@@ -86,6 +87,11 @@ def build_voice_interface():
     from core.voice import VoiceInterface
 
     wake_phrase = os.getenv("WAKE_PHRASE", "computer")
+    stt_backend, stt_status = build_stt_backend(
+        wake_model=os.getenv("WAKE_MODEL", "tiny"),
+        transcription_model=os.getenv("WHISPER_MODEL", "base"),
+    )
+    print(stt_status)
 
     return VoiceInterface(
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
@@ -96,6 +102,7 @@ def build_voice_interface():
         tts_speed=float(os.getenv("TTS_SPEED", "1.2")),
         silence_threshold=int(os.getenv("SILENCE_THRESHOLD", "1000")),
         silence_duration=float(os.getenv("SILENCE_DURATION", "2.0")),
+        stt_backend=stt_backend,
     )
 
 
