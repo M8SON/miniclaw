@@ -12,6 +12,7 @@ from typing import Protocol
 import sounddevice as sd
 import whisper
 from kokoro import KPipeline
+from core.audio_devices import resample
 from core.hailo_whisper_runtime import HailoTranscriptionRuntime, HailoWakeRuntime
 
 logger = logging.getLogger(__name__)
@@ -214,20 +215,22 @@ class KokoroTTSBackend:
         voice: str = "af_heart",
         speed: float = 1.0,
         output_device: int | None = None,
+        output_samplerate: int | None = None,
     ):
         logger.info("Loading Kokoro TTS pipeline (voice: %s)...", voice)
         self.voice = voice
         self.speed = speed
         self.output_device = output_device
+        self.output_samplerate = output_samplerate or KOKORO_SAMPLE_RATE
         self.pipeline = KPipeline(lang_code="a")
 
     def speak(self, text: str) -> None:
         """Stream generated speech directly to the output device."""
         with sd.OutputStream(
-            samplerate=self.sample_rate,
+            samplerate=self.output_samplerate,
             channels=1,
             dtype="float32",
             device=self.output_device,
         ) as stream:
             for _, _, audio in self.pipeline(text, voice=self.voice, speed=self.speed):
-                stream.write(audio)
+                stream.write(resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate))

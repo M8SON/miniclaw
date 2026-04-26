@@ -73,3 +73,46 @@ def resolve_output_device(query: str | None = None) -> int | None:
 
     logger.warning("No output device matched %r — using sounddevice default", name)
     return None
+
+
+def output_samplerate(device: int | None) -> int:
+    """Return the device's native sample rate (PortAudio reports it per device).
+
+    Falls back to 48000 Hz — a safe default for class-compliant USB DACs that
+    refuse the lower rates Kokoro and the R2-D2 chirps natively use.
+    """
+    try:
+        import sounddevice as sd
+    except ImportError:
+        return 48000
+
+    info = sd.query_devices(device, "output") if device is not None else sd.query_devices(kind="output")
+    rate = int(info.get("default_samplerate") or 48000)
+    return rate
+
+
+def resample(audio, src_rate: int, dst_rate: int):
+    """Linear-interpolation resample. Clean for upsampling speech-band audio.
+
+    Returns ``audio`` unchanged when the rates already match.
+    """
+    if src_rate == dst_rate:
+        return audio
+
+    import numpy as np
+
+    src = np.asarray(audio)
+    if src.size == 0:
+        return src
+
+    dst_len = int(round(src.shape[0] * dst_rate / src_rate))
+    src_x = np.arange(src.shape[0], dtype=np.float64)
+    dst_x = np.linspace(0, src.shape[0] - 1, dst_len, dtype=np.float64)
+
+    if src.ndim == 1:
+        return np.interp(dst_x, src_x, src).astype(src.dtype, copy=False)
+
+    out = np.empty((dst_len, src.shape[1]), dtype=src.dtype)
+    for ch in range(src.shape[1]):
+        out[:, ch] = np.interp(dst_x, src_x, src[:, ch])
+    return out

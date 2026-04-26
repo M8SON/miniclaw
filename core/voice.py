@@ -17,7 +17,12 @@ import numpy as np
 import pyaudio
 import sounddevice as sd
 
-from core.audio_devices import resolve_input_device, resolve_output_device
+from core.audio_devices import (
+    output_samplerate,
+    resample,
+    resolve_input_device,
+    resolve_output_device,
+)
 from core.voice_backends import KOKORO_SAMPLE_RATE, KokoroTTSBackend, WhisperBackend
 
 logger = logging.getLogger(__name__)
@@ -62,6 +67,7 @@ class VoiceInterface:
 
         self._input_device_index = resolve_input_device()
         self._output_device_index = resolve_output_device()
+        self._output_samplerate = output_samplerate(self._output_device_index)
 
         # Shared PyAudio stream passed from wake detection to listen()
         # to avoid the teardown/setup gap between the two phases.
@@ -80,6 +86,7 @@ class VoiceInterface:
                     voice=tts_voice,
                     speed=tts_speed,
                     output_device=self._output_device_index,
+                    output_samplerate=self._output_samplerate,
                 )
                 if enable_tts
                 else None
@@ -235,7 +242,11 @@ class VoiceInterface:
                 self._r2_beep(1500, 0.06), gs,
                 self._r2_beep(2200, 0.10, volume=0.5),
             ])
-            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE, device=self._output_device_index)
+            sd.play(
+                resample(sound, KOKORO_SAMPLE_RATE, self._output_samplerate),
+                samplerate=self._output_samplerate,
+                device=self._output_device_index,
+            )
             sd.wait()
         except Exception as e:
             logger.warning("Startup sound error: %s", e)
@@ -260,7 +271,11 @@ class VoiceInterface:
                 g,
                 self._r2_beep(1650, 0.07),
             ])
-            sd.play(sound, samplerate=KOKORO_SAMPLE_RATE, device=self._output_device_index)
+            sd.play(
+                resample(sound, KOKORO_SAMPLE_RATE, self._output_samplerate),
+                samplerate=self._output_samplerate,
+                device=self._output_device_index,
+            )
             sd.wait()
         except Exception as e:
             logger.warning("Thinking sound error: %s", e)
