@@ -29,6 +29,7 @@ Update this file when durable project context changes. Do not create overlapping
 - Direct routes now avoid building the full Claude system prompt first.
 - If Ollama runs tools and then cannot finish the turn, MiniClaw now commits that tool activity into `ConversationState` and asks Claude to finalize the response without re-running the tools.
 - Native handlers are a first-class execution path alongside Docker, not just a temporary exception.
+- Hailo STT rollout is intentionally hybrid in V1: wake detection stays CPU Whisper, full post-wake transcription can offload to Hailo when runtime + assets are present.
 - Memory policy is intentionally proactive: save durable, useful long-term facts even without an explicit "remember this" request; avoid trivial or one-turn context.
 - Weather location is no longer an env-backed source of truth in the host runtime.
   Resolve location from explicit request override, then remembered memory (`topic: location`), then dashboard-only fallback.
@@ -51,9 +52,15 @@ Update this file when durable project context changes. Do not create overlapping
 - Tiered intelligence architecture implemented (behind `OLLAMA_ENABLED=false`).
   Three tiers: deterministic → Ollama → Claude. Activate when Pi hardware arrives.
 - The major Ollama/Claude handoff seam has been hardened: escalation after tool execution no longer requires re-executing the same side effects.
+- Hailo-backed full transcription path is implemented behind startup auto-detection.
+  MiniClaw selects `HybridWhisperBackend` when `/dev/hailo0`, `hailo_platform`, and `~/.miniclaw/models/hailo-whisper/<variant>` assets are present.
 
 ## Recent Durable Milestones
 
+- 2026-04-25: shipped Hailo-backed full transcription (hybrid STT)
+  wake detection stays on CPU Whisper; full transcription can offload to Hailo
+  MiniClaw-owned runtime in `core/hailo_whisper_runtime.py`
+  user-scoped asset downloader: `scripts/download_hailo_whisper_assets.py`
 - 2026-04-25: shipped voice transport for SoundCloud music
   pause / resume / skip / volume on top of existing play / stop
   20-track queue per play query; mpv IPC for in-flight control
@@ -91,7 +98,7 @@ Update this file when durable project context changes. Do not create overlapping
 - Dashboard end-to-end validation on real Pi hardware is still pending.
 - ~~Voice stop/pause control for music is still incomplete.~~ Closed 2026-04-25.
   soundcloud handler now supports play / stop / pause / resume / skip / volume_up / volume_down via mpv IPC. play queues 20 tracks; transport actions are regex-dispatched through TierRouter (no LLM round-trip). On-Pi validation pending Ollama setup so TierRouter activates.
-- Pi 5 + AI HAT+ 2 dependent work is still blocked on hardware.
+- Hailo-backed full transcription still needs on-device Pi validation; wake detection offload is not implemented yet.
 - Memory behavior is structurally aligned now, but still worth validating in practice once more real conversations accumulate.
 - Weather/location memory capture by voice is still skill-prompt driven; there is not yet a dedicated first-class "set my location" tool.
 
@@ -102,7 +109,7 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Likely Next Direction
 
-- Validate the current tiered architecture on real Pi hardware before adding more routing complexity.
+- Validate the current tiered architecture and hybrid Hailo transcription path on real Pi hardware before adding more routing complexity.
 - Focus next on behavioral polish: real-world memory quality, voice flow smoothness, and routine-command reliability.
 
 ## Hermes-Inspired Enhancement Roadmap

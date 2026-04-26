@@ -27,6 +27,7 @@ The system uses two layers for extensibility:
 
 - Tiered intelligence — deterministic dispatch for instant commands, Ollama for routine requests, Claude only for complex reasoning
 - Wake word detection (`"computer"`) using a sliding Whisper window — any phrase works, no training required
+- Optional Hailo-backed full transcription on Raspberry Pi AI HAT+ 2 hardware (wake detection remains CPU Whisper for now)
 - Conversation session mode — stays active between follow-ups until idle timeout
 - Streaming TTS — Kokoro chunks play as they're generated, first words spoken immediately
 - Voice skill installation — say "add a skill that does X" and Claude Code writes, builds, and loads it
@@ -53,7 +54,7 @@ The system uses two layers for extensibility:
 
 - Raspberry Pi 5 (8GB or 16GB RAM)
 - NVMe SSD via M.2 HAT+
-- Raspberry Pi AI HAT+ 2 (for accelerated Whisper + Kokoro)
+- Raspberry Pi AI HAT+ 2 (for Hailo-backed transcription now, Kokoro offload later)
 - Active cooler
 - USB microphone
 
@@ -88,7 +89,7 @@ Two practical build tiers:
 | Case | ~$10 |
 | **Total** | **~$297** |
 
-Prices are approximate and vary by region and retailer. The AI HAT+ 2 is optional but strongly recommended for always-on deployments — it offloads Whisper and Kokoro to the NPU, freeing the CPU and significantly reducing power draw.
+Prices are approximate and vary by region and retailer. The AI HAT+ 2 is optional but strongly recommended for always-on deployments — MiniClaw currently uses it for Hailo-backed full transcription, with wake detection and Kokoro acceleration still remaining on the roadmap.
 
 ### Yearly Electricity
 
@@ -97,7 +98,7 @@ See [Power Consumption](#power-consumption) below for the full breakdown. Summar
 | Build | Avg draw | Annual cost (US) | Annual cost (UK) |
 |---|---|---|---|
 | Budget (CPU inference) | ~7W | ~$8/yr | ~$17/yr |
-| Recommended (NPU inference) | ~4–5W | ~$5/yr | ~$11/yr |
+| Recommended (target with broader NPU offload) | ~4–5W | ~$5/yr | ~$11/yr |
 
 Running costs are negligible — the hardware pays for itself in utility long before electricity becomes a concern.
 
@@ -115,6 +116,85 @@ cp .env.example .env
 ```
 
 `run.sh` handles Python setup automatically: creates the virtual environment, installs Python dependencies, and builds any missing Docker containers before launching.
+
+## Optional: Hailo Whisper Offload
+
+MiniClaw can offload **full post-wake transcription** to a Raspberry Pi AI HAT+ 2 / Hailo device. The current implementation is hybrid:
+
+- wake detection stays on CPU Whisper (`WAKE_MODEL`, usually `tiny`)
+- full utterance transcription can run on Hailo (`WHISPER_MODEL`, currently `base`/`tiny` variants)
+
+### Pi prerequisites
+
+Install the Hailo runtime on the Pi:
+
+```bash
+sudo apt update
+sudo apt install -y hailo-all ffmpeg libblas-dev nlohmann-json3-dev
+sudo reboot
+```
+
+Verify the device and runtime:
+
+```bash
+hailortcli fw-control identify
+ls /dev/hailo0
+```
+
+### Python environment note
+
+MiniClaw's default `run.sh` creates a normal `.venv`. On many Pi installs, the `hailo_platform` Python module is provided by the system package, so you may want MiniClaw's virtualenv to see system site-packages:
+
+```bash
+rm -rf .venv
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+If `python3 -c "import hailo_platform"` already works inside `.venv`, you do not need to recreate it.
+
+### Download MiniClaw Hailo assets
+
+Download the HEFs and decoder assets into MiniClaw's user-scoped model store:
+
+```bash
+.venv/bin/python scripts/download_hailo_whisper_assets.py --variant base --hw-arch hailo8l
+```
+
+Assets are stored under:
+
+```text
+~/.miniclaw/models/hailo-whisper/
+```
+
+### Validate on the Pi
+
+Run MiniClaw in voice mode:
+
+```bash
+./run.sh --voice
+```
+
+Expected startup line when Hailo is active:
+
+```text
+STT backend: Hybrid Whisper (wake=cpu:tiny, transcription=hailo:base)
+```
+
+Expected fallback line if something is missing:
+
+```text
+STT backend: CPU Whisper fallback — <reason>
+```
+
+If you still see CPU fallback, the likely causes are:
+
+- `hailo_platform` is not visible inside `.venv`
+- `~/.miniclaw/models/hailo-whisper/base` is missing assets
+- the selected `WHISPER_MODEL` variant is unsupported by the Hailo path
+
+Current limitation: wake-word detection is still CPU-only. Hailo currently accelerates the heavier full-transcription path after the wake phrase is detected.
 
 System packages are separate because they require privileged OS changes. On Debian/Ubuntu, you can opt into that setup with:
 
@@ -302,18 +382,15 @@ Key environment variables in `.env`:
 
 MiniClaw is designed to run 24/7, so wake detection power draw is worth considering.
 
-Wake word detection runs whisper-tiny every 2 seconds on a 2-second audio window. The cost depends on whether inference runs on CPU or the AI HAT+ 2 NPU:
+Wake word detection currently runs whisper-tiny every 2 seconds on a 2-second audio window **on CPU**. The current Hailo integration accelerates full post-wake transcription, not the always-on wake loop.
 
 | Mode | Avg system draw | Est. annual usage | US (~$0.13/kWh) | UK (~$0.28/kWh) |
 |---|---|---|---|---|
-| CPU inference (Pi 5 only) | ~7W | ~61 kWh | ~$8/yr | ~$17/yr |
-| NPU inference (AI HAT+ 2) | ~4–5W | ~39 kWh | ~$5/yr | ~$11/yr |
+| Current wake loop (CPU inference) | ~7W | ~61 kWh | ~$8/yr | ~$17/yr |
 
 **CPU mode:** whisper-tiny inference on Pi 5's Cortex-A76 takes roughly 0.3–0.8s per 2-second clip, putting wake detection at 15–40% CPU utilization continuously.
 
-**NPU mode:** the Hailo-8L handles inference in ~50–150ms at ~2–3W peak, running at roughly 10% duty cycle. This frees the CPU entirely and reduces average system draw by ~2–3W.
-
-The electricity cost is modest in either case, but NPU offload is recommended for always-on deployments — the real benefit is thermal headroom and CPU availability for skill execution.
+**Current Hailo mode:** the Hailo-backed path helps the heavier full-transcription step after wake, reducing post-wake CPU load and latency, but it does not yet change the always-listening wake-loop power profile.
 
 ## Project Structure
 
@@ -373,7 +450,8 @@ MiniClaw/
 - [x] Visual dashboard skill (news/OSINT, weather, stocks, music — voice-triggered, auto-closes)
 - [x] Tiered intelligence — deterministic dispatch + Ollama routing + Claude fallback (feature-flagged, enable with `OLLAMA_ENABLED=true`)
 - [ ] TTS interruption — stop speaking when user talks over the assistant
-- [ ] AI HAT+ 2 accelerated Whisper (offload STT to Hailo-8L NPU)
+- [x] AI HAT+ 2 accelerated full transcription (Hailo-backed post-wake STT)
+- [ ] AI HAT+ 2 accelerated wake detection (offload whisper-tiny sliding window)
 - [ ] AI HAT+ 2 accelerated Kokoro TTS (offload synthesis to Hailo-8L NPU)
 - [ ] GPIO / hardware module skills (lights, sensors, displays)
 - [ ] Camera + vision skills via AI HAT+ 2
