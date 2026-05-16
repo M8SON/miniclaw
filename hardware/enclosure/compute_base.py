@@ -4,6 +4,8 @@ Single function `build_compute_base()` returns a cadquery.Workplane solid
 representing the complete compute base part (no separate dome).
 """
 
+import math
+
 import cadquery as cq
 
 import params as p
@@ -183,7 +185,6 @@ def _bottom_vents(base):
 
 def _dome_screw_bosses(base):
     """4 screw bosses rising from the divider top to clamp the dome lip."""
-    import math
     pcd_r = p.DOME_SCREW_PCD / 2
     for i in range(p.DOME_SCREW_COUNT):
         angle = i * (2 * math.pi / p.DOME_SCREW_COUNT) + math.pi / 4  # 45° offset
@@ -226,7 +227,6 @@ def _cable_passthrough(base):
 
 def _mic_acoustic_ports(base):
     """4x Ø3mm direct acoustic openings in the divider, aligned with XVF3800 mics."""
-    import math
     for angle_deg in p.XVF_MIC_ANGLES_DEG:
         angle = math.radians(angle_deg)
         x = p.XVF_MIC_R * math.cos(angle)
@@ -248,7 +248,6 @@ def _mic_acoustic_ports(base):
 
 def _xvf_mount_bosses(base):
     """Standoff bosses on the divider for the XVF3800 board."""
-    import math
     pcd_r = p.XVF_MOUNT_PCD / 2
     for i in range(p.XVF_MOUNT_COUNT):
         angle = i * (2 * math.pi / p.XVF_MOUNT_COUNT)
