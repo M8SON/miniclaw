@@ -3,6 +3,7 @@ is manifold and has the expected bounding box per the spec."""
 
 import pytest
 from compute_base import build_compute_base
+from mic_dome import build_mic_dome
 
 
 def _bbox(solid):
@@ -53,3 +54,22 @@ def test_compute_base_volume_reasonable():
     part = build_compute_base()
     vol = part.val().Volume()
     assert 50_000 < vol < 120_000, f"unexpected volume {vol} mm^3"
+
+
+def test_mic_dome_is_valid():
+    part = build_mic_dome()
+    assert part.val().isValid(), "mic_dome must be a valid manifold solid"
+
+
+def test_mic_dome_bounding_box():
+    part = build_mic_dome()
+    xlen, ylen, zlen = _bbox(part)
+    assert 112.0 <= xlen <= 114.0, f"mic_dome X = {xlen}"
+    assert 112.0 <= ylen <= 114.0, f"mic_dome Y = {ylen}"
+    assert 17.0 <= zlen <= 19.0, f"mic_dome Z = {zlen}"
+
+
+def test_mic_dome_screw_holes():
+    """4 screw clearance holes should produce extra faces in the lip."""
+    part = build_mic_dome()
+    assert len(part.val().Faces()) > 8, "dome should have lip cutouts"
