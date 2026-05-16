@@ -74,9 +74,80 @@ def _pi_standoffs(base):
     return base
 
 
+def _port_cutout_right(base):
+    """Single rect cutout for 2x USB-A 3.0 + 2x USB-A 2.0 + GbE on the right face."""
+    w = p.PORTS_RIGHT_W + 2 * p.PORT_CLEARANCE
+    h = p.PORTS_RIGHT_H + 2 * p.PORT_CLEARANCE
+    z = p.FLOOR + p.PI_STANDOFF_HEIGHT + 1.6 + 1.0  # PCB top + a bit
+    cutout = (
+        cq.Workplane("YZ")
+        .workplane(offset=p.BASE_X / 2 - p.WALL)
+        .center(p.PI_OFFSET_Y, z + h / 2)
+        .rect(h, w)
+        .extrude(p.WALL + 1.0)
+    )
+    return base.cut(cutout)
+
+
+def _port_cutouts_front(base):
+    """2x micro-HDMI, USB-C, 3.5mm audio jack on the +Y short face."""
+    z_pcb_top = p.FLOOR + p.PI_STANDOFF_HEIGHT + 1.6
+    z = z_pcb_top + 1.5  # connectors sit ~1.5mm above PCB
+
+    # Positions along X relative to Pi center: HDMI0, HDMI1, USB-C, audio
+    positions_w_h = [
+        (-21.0, p.HDMI_W, p.HDMI_H),
+        (-11.0, p.HDMI_W, p.HDMI_H),
+        (+3.0, p.USBC_W, p.USBC_H),
+        (+22.0, p.AUDIO_JACK_D, p.AUDIO_JACK_D),
+    ]
+    for offset_x, w, h in positions_w_h:
+        cutout = (
+            cq.Workplane("XZ")
+            .workplane(offset=p.BASE_Y / 2 - p.WALL)
+            .center(p.PI_OFFSET_X + offset_x, z + h / 2)
+            .rect(w + 2 * p.PORT_CLEARANCE, h + 2 * p.PORT_CLEARANCE)
+            .extrude(p.WALL + 1.0)
+        )
+        base = base.cut(cutout)
+    return base
+
+
+def _microsd_cutout(base):
+    """microSD slot on the back face (-Y), flush with Pi PCB underside."""
+    z = p.FLOOR + p.PI_STANDOFF_HEIGHT - 1.0  # microSD is under the PCB
+    cutout = (
+        cq.Workplane("XZ")
+        .workplane(offset=-p.BASE_Y / 2 + p.WALL - 1.0)
+        .center(p.PI_OFFSET_X, z + p.MICROSD_H / 2)
+        .rect(p.MICROSD_W + 2 * p.PORT_CLEARANCE, p.MICROSD_H + 2 * p.PORT_CLEARANCE)
+        .extrude(p.WALL + 2.0)
+    )
+    return base.cut(cutout)
+
+
+def _plunger_hole(base):
+    """Through-hole for the power-button plunger on the front face."""
+    z_pcb_top = p.FLOOR + p.PI_STANDOFF_HEIGHT + 1.6
+    z = z_pcb_top + 4.0  # rough Pi 5 button height above PCB
+    x = p.PI_OFFSET_X + 12.0
+    cutout = (
+        cq.Workplane("XZ")
+        .workplane(offset=p.BASE_Y / 2 - p.WALL - 1.0)
+        .center(x, z)
+        .circle(p.PLUNGER_HOLE_D / 2)
+        .extrude(p.WALL + 2.0)
+    )
+    return base.cut(cutout)
+
+
 def build_compute_base():
     base = _outer_shell()
     base = _pi_standoffs(base)
+    base = _port_cutout_right(base)
+    base = _port_cutouts_front(base)
+    base = _microsd_cutout(base)
+    base = _plunger_hole(base)
     return base
 
 

@@ -27,3 +27,12 @@ def test_compute_base_bounding_box():
 def test_compute_base_has_volume():
     part = build_compute_base()
     assert part.val().Volume() > 10000, "compute_base volume too small"
+
+
+def test_compute_base_has_port_cutouts():
+    """After port cutouts, the part should have substantially more faces
+    than a plain shell (each cutout adds 5-6 faces)."""
+    part = build_compute_base()
+    # Shell-only had ~18 faces; with 7+ cutouts expect >40
+    n_faces = len(part.val().Faces())
+    assert n_faces > 40, f"expected >40 faces after port cutouts, got {n_faces}"
