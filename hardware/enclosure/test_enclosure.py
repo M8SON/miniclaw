@@ -90,3 +90,30 @@ def test_plunger_bounding_box():
     assert 5.5 <= ylen <= 6.5
     expected_z = p.PLUNGER_STEM_LEN + p.PLUNGER_HEAD_T
     assert (expected_z - 0.5) <= zlen <= (expected_z + 0.5)
+
+
+import os
+import subprocess
+
+
+def test_build_script_emits_all_six_files(tmp_path, monkeypatch):
+    """Running build.py should write 3 .step + 3 .stl into output/."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    monkeypatch.chdir(here)
+    # Clean previous outputs
+    for fname in ("compute_base.step", "compute_base.stl",
+                  "mic_dome.step", "mic_dome.stl",
+                  "plunger.step", "plunger.stl"):
+        fpath = os.path.join(here, "output", fname)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+    result = subprocess.run(["python", "build.py"], capture_output=True, text=True)
+    assert result.returncode == 0, f"build.py failed: {result.stderr}"
+
+    for fname in ("compute_base.step", "compute_base.stl",
+                  "mic_dome.step", "mic_dome.stl",
+                  "plunger.step", "plunger.stl"):
+        fpath = os.path.join(here, "output", fname)
+        assert os.path.exists(fpath), f"missing {fname}"
+        assert os.path.getsize(fpath) > 1000, f"{fname} suspiciously small"
