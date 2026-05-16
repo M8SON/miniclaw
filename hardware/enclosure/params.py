@@ -84,7 +84,8 @@ DOME_SCREW_COUNT = 4
 DOME_SCREW_PCD = 88.0             # pitch-circle diameter; inside dome OD, outside base footprint
 DOME_SCREW_D = 3.0
 DOME_SCREW_BOSS_OD = 6.0
-DOME_SCREW_BOSS_HEIGHT = 4.0      # rises above divider
+DOME_SCREW_BOSS_HEIGHT = 4.0           # legacy, retained for short XVF mount bosses if needed later
+DOME_SCREW_BOSS_HEIGHT_FULL = BASE_Z - (DIVIDER_Z + DIVIDER_THICKNESS)  # rises from divider to top rim (~15.5mm)
 
 # --- Feet ---
 FOOT_HEIGHT = 4.0
@@ -96,13 +97,13 @@ XVF_OD = 106.0
 XVF_PCB_T = 1.6
 XVF_STANDOFF_HEIGHT = 5.0
 XVF_MOUNT_COUNT = 4
-XVF_MOUNT_PCD = 80.0
+XVF_MOUNT_PCD = DOME_SCREW_PCD  # combined dome+XVF mount for v0 (placeholder)
 XVF_MOUNT_HOLE_D = 2.5
 XVF_USBC_ANGLE_DEG = 0.0          # 0 = +X radial direction
 XVF_LED_RING_OUTER_R = 45.0
 XVF_LED_RING_INNER_R = 38.0
 XVF_MIC_R = 48.0
-XVF_MIC_ANGLES_DEG = [0.0, 90.0, 180.0, 270.0]
+XVF_MIC_ANGLES_DEG = [45.0, 135.0, 225.0, 315.0]  # placeholder; 45° offsets fit within divider at R=48
 XVF_MIC_PORT_D = 3.0
 
 # --- Cable pass-through ---

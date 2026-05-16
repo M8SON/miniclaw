@@ -85,7 +85,7 @@ def _port_cutout_right(base):
         cq.Workplane("YZ")
         .workplane(offset=p.BASE_X / 2 - p.WALL)
         .center(p.PI_OFFSET_Y, z + h / 2)
-        .rect(h, w)
+        .rect(w, h)
         .extrude(p.WALL + 1.0)
     )
     return base.cut(cutout)
@@ -120,10 +120,10 @@ def _microsd_cutout(base):
     z = p.FLOOR + p.PI_STANDOFF_HEIGHT - 1.0  # microSD is under the PCB
     cutout = (
         cq.Workplane("XZ")
-        .workplane(offset=-p.BASE_Y / 2 + p.WALL - 1.0)
+        .workplane(offset=-p.BASE_Y / 2 - 0.1)
         .center(p.PI_OFFSET_X, z + p.MICROSD_H / 2)
         .rect(p.MICROSD_W + 2 * p.PORT_CLEARANCE, p.MICROSD_H + 2 * p.PORT_CLEARANCE)
-        .extrude(p.WALL + 2.0)
+        .extrude(p.WALL + 0.2)
     )
     return base.cut(cutout)
 
@@ -151,10 +151,10 @@ def _side_vents(base):
         y = -total_width / 2 + i * p.VENT_SLOT_PITCH
         cutout = (
             cq.Workplane("YZ")
-            .workplane(offset=-p.BASE_X / 2 + p.WALL - 1.0)
+            .workplane(offset=-p.BASE_X / 2 - 0.1)
             .center(y, z_center)
             .rect(p.VENT_SLOT_W, p.SIDE_VENT_HEIGHT)
-            .extrude(p.WALL + 2.0)
+            .extrude(p.WALL + 0.2)
         )
         base = base.cut(cutout)
     return base
@@ -199,7 +199,7 @@ def _dome_screw_bosses(base):
             .workplane(offset=p.DIVIDER_Z + p.DIVIDER_THICKNESS)
             .center(x, y)
             .circle(p.DOME_SCREW_BOSS_OD / 2)
-            .extrude(p.DOME_SCREW_BOSS_HEIGHT)
+            .extrude(p.DOME_SCREW_BOSS_HEIGHT_FULL)
         )
         base = base.union(boss)
         hole = (
@@ -207,7 +207,7 @@ def _dome_screw_bosses(base):
             .workplane(offset=p.DIVIDER_Z + p.DIVIDER_THICKNESS)
             .center(x, y)
             .circle(p.DOME_SCREW_D / 2 * 0.9)  # 90% for self-tap
-            .extrude(p.DOME_SCREW_BOSS_HEIGHT + 0.1)
+            .extrude(p.DOME_SCREW_BOSS_HEIGHT_FULL + 0.1)
         )
         base = base.cut(hole)
     return base
@@ -288,7 +288,7 @@ def build_compute_base():
     base = _dome_screw_bosses(base)
     base = _cable_passthrough(base)
     base = _mic_acoustic_ports(base)
-    base = _xvf_mount_bosses(base)
+    # _xvf_mount_bosses skipped: dome bosses serve both purposes for v0 (combined mount)
     return base
 
 

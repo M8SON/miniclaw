@@ -73,9 +73,22 @@ def _screw_holes(cap):
     return cap
 
 
+def _bottom_flange(cap):
+    """Solid horizontal flange at the dome bottom (z=0..DOME_LIP_THICKNESS),
+    filling the inner cavity from the wall inward to make a surface that screws
+    can clamp against. The diffuser ring at the top remains unaffected."""
+    flange = (
+        cq.Workplane("XY")
+        .circle((p.DOME_OD / 2) - p.DOME_WALL)  # fills inner cavity
+        .extrude(p.DOME_LIP_THICKNESS)
+    )
+    return cap.union(flange)
+
+
 def build_mic_dome():
     cap = _solid_cylinder()
     cap = _thin_diffuser_annulus(cap)
+    cap = _bottom_flange(cap)
     cap = _screw_holes(cap)
     return cap
 
