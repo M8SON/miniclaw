@@ -141,6 +141,142 @@ def _plunger_hole(base):
     return base.cut(cutout)
 
 
+def _side_vents(base):
+    """Vertical slot vents on the -X (GPIO) face — 7 slots, 1x30mm, 3mm pitch."""
+    z_center = p.FLOOR + p.COMPUTE_CHAMBER_HEIGHT / 2
+    total_width = (p.SIDE_VENT_COUNT - 1) * p.VENT_SLOT_PITCH
+    for i in range(p.SIDE_VENT_COUNT):
+        y = -total_width / 2 + i * p.VENT_SLOT_PITCH
+        cutout = (
+            cq.Workplane("YZ")
+            .workplane(offset=-p.BASE_X / 2 + p.WALL - 1.0)
+            .center(y, z_center)
+            .rect(p.VENT_SLOT_W, p.SIDE_VENT_HEIGHT)
+            .extrude(p.WALL + 2.0)
+        )
+        base = base.cut(cutout)
+    return base
+
+
+def _bottom_vents(base):
+    """Slot grid in the bottom plate."""
+    inner_x = p.PI_MOUNT_PATTERN_X * 0.45
+    inner_y = p.PI_MOUNT_PATTERN_Y * 0.45
+    slots_x = int((2 * inner_x) / p.VENT_SLOT_PITCH)
+    slots_y_per_strip = 4
+    pitch = p.VENT_SLOT_PITCH
+    for ix in range(slots_x):
+        x = -inner_x + ix * pitch + pitch / 2
+        if abs(x) > inner_x - 1:
+            continue
+        for iy in range(slots_y_per_strip):
+            y = -inner_y + iy * (2 * inner_y / (slots_y_per_strip - 1))
+            cutout = (
+                cq.Workplane("XY")
+                .center(x, y)
+                .rect(p.VENT_SLOT_W, p.VENT_SLOT_H)
+                .extrude(p.FLOOR + 0.1)
+            )
+            base = base.cut(cutout)
+    return base
+
+
+def _dome_screw_bosses(base):
+    """4 screw bosses rising from the divider top to clamp the dome lip."""
+    import math
+    pcd_r = p.DOME_SCREW_PCD / 2
+    for i in range(p.DOME_SCREW_COUNT):
+        angle = i * (2 * math.pi / p.DOME_SCREW_COUNT) + math.pi / 4  # 45° offset
+        x = pcd_r * math.cos(angle)
+        y = pcd_r * math.sin(angle)
+        if abs(x) > p.BASE_X / 2 - p.DOME_SCREW_BOSS_OD / 2 - 1:
+            continue
+        if abs(y) > p.BASE_Y / 2 - p.DOME_SCREW_BOSS_OD / 2 - 1:
+            continue
+        boss = (
+            cq.Workplane("XY")
+            .workplane(offset=p.DIVIDER_Z + p.DIVIDER_THICKNESS)
+            .center(x, y)
+            .circle(p.DOME_SCREW_BOSS_OD / 2)
+            .extrude(p.DOME_SCREW_BOSS_HEIGHT)
+        )
+        base = base.union(boss)
+        hole = (
+            cq.Workplane("XY")
+            .workplane(offset=p.DIVIDER_Z + p.DIVIDER_THICKNESS)
+            .center(x, y)
+            .circle(p.DOME_SCREW_D / 2 * 0.9)  # 90% for self-tap
+            .extrude(p.DOME_SCREW_BOSS_HEIGHT + 0.1)
+        )
+        base = base.cut(hole)
+    return base
+
+
+def _cable_passthrough(base):
+    """Ø10mm hole in the divider for the USB-A→USB-C cable."""
+    cutout = (
+        cq.Workplane("XY")
+        .workplane(offset=p.DIVIDER_Z)
+        .center(p.CABLE_GROMMET_X, p.CABLE_GROMMET_Y)
+        .circle(p.CABLE_GROMMET_D / 2)
+        .extrude(p.DIVIDER_THICKNESS + 0.1)
+    )
+    return base.cut(cutout)
+
+
+def _mic_acoustic_ports(base):
+    """4x Ø3mm direct acoustic openings in the divider, aligned with XVF3800 mics."""
+    import math
+    for angle_deg in p.XVF_MIC_ANGLES_DEG:
+        angle = math.radians(angle_deg)
+        x = p.XVF_MIC_R * math.cos(angle)
+        y = p.XVF_MIC_R * math.sin(angle)
+        if abs(x) > p.BASE_X / 2 - p.WALL - 1:
+            continue
+        if abs(y) > p.BASE_Y / 2 - p.WALL - 1:
+            continue
+        cutout = (
+            cq.Workplane("XY")
+            .workplane(offset=p.DIVIDER_Z)
+            .center(x, y)
+            .circle(p.XVF_MIC_PORT_D / 2)
+            .extrude(p.DIVIDER_THICKNESS + 0.1)
+        )
+        base = base.cut(cutout)
+    return base
+
+
+def _xvf_mount_bosses(base):
+    """Standoff bosses on the divider for the XVF3800 board."""
+    import math
+    pcd_r = p.XVF_MOUNT_PCD / 2
+    for i in range(p.XVF_MOUNT_COUNT):
+        angle = i * (2 * math.pi / p.XVF_MOUNT_COUNT)
+        x = pcd_r * math.cos(angle)
+        y = pcd_r * math.sin(angle)
+        if abs(x) > p.BASE_X / 2 - p.WALL - 2:
+            continue
+        if abs(y) > p.BASE_Y / 2 - p.WALL - 2:
+            continue
+        boss = (
+            cq.Workplane("XY")
+            .workplane(offset=p.DIVIDER_Z + p.DIVIDER_THICKNESS)
+            .center(x, y)
+            .circle((p.XVF_MOUNT_HOLE_D + 2.0) / 2)
+            .extrude(p.XVF_STANDOFF_HEIGHT)
+        )
+        base = base.union(boss)
+        hole = (
+            cq.Workplane("XY")
+            .workplane(offset=p.DIVIDER_Z + p.DIVIDER_THICKNESS)
+            .center(x, y)
+            .circle(p.XVF_MOUNT_HOLE_D / 2 * 0.9)
+            .extrude(p.XVF_STANDOFF_HEIGHT + 0.1)
+        )
+        base = base.cut(hole)
+    return base
+
+
 def build_compute_base():
     base = _outer_shell()
     base = _pi_standoffs(base)
@@ -148,6 +284,12 @@ def build_compute_base():
     base = _port_cutouts_front(base)
     base = _microsd_cutout(base)
     base = _plunger_hole(base)
+    base = _side_vents(base)
+    base = _bottom_vents(base)
+    base = _dome_screw_bosses(base)
+    base = _cable_passthrough(base)
+    base = _mic_acoustic_ports(base)
+    base = _xvf_mount_bosses(base)
     return base
 
 

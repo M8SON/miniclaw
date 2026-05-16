@@ -36,3 +36,20 @@ def test_compute_base_has_port_cutouts():
     # Shell-only had ~18 faces; with 7+ cutouts expect >40
     n_faces = len(part.val().Faces())
     assert n_faces > 40, f"expected >40 faces after port cutouts, got {n_faces}"
+
+
+def test_compute_base_has_vents():
+    """Side and bottom vents should add many small face groups (slot grids)."""
+    part = build_compute_base()
+    n_faces = len(part.val().Faces())
+    # After vents we should be well past 60 faces
+    assert n_faces > 60, f"expected >60 faces after vents added, got {n_faces}"
+
+
+def test_compute_base_volume_reasonable():
+    """Total material volume should be 50-120cm^3 (50000-120000 mm^3) — a
+    rough sanity check that we haven't accidentally hollowed everything
+    or left it solid."""
+    part = build_compute_base()
+    vol = part.val().Volume()
+    assert 50_000 < vol < 120_000, f"unexpected volume {vol} mm^3"
