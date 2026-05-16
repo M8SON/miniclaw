@@ -4,6 +4,8 @@ is manifold and has the expected bounding box per the spec."""
 import pytest
 from compute_base import build_compute_base
 from mic_dome import build_mic_dome
+from plunger import build_plunger
+import params as p
 
 
 def _bbox(solid):
@@ -73,3 +75,18 @@ def test_mic_dome_screw_holes():
     """4 screw clearance holes should produce extra faces in the lip."""
     part = build_mic_dome()
     assert len(part.val().Faces()) > 8, "dome should have lip cutouts"
+
+
+def test_plunger_is_valid():
+    part = build_plunger()
+    assert part.val().isValid()
+
+
+def test_plunger_bounding_box():
+    part = build_plunger()
+    xlen, ylen, zlen = _bbox(part)
+    # Largest XY dim = head diameter; Z = stem + head thickness
+    assert 5.5 <= xlen <= 6.5
+    assert 5.5 <= ylen <= 6.5
+    expected_z = p.PLUNGER_STEM_LEN + p.PLUNGER_HEAD_T
+    assert (expected_z - 0.5) <= zlen <= (expected_z + 0.5)
