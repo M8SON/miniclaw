@@ -146,6 +146,20 @@ class VoiceModeTests(unittest.TestCase):
         self.assertEqual(voice.response_ready_sounds, 1)
         self.assertIsNotNone(orchestrator.container_manager._meta_skill_executor)
 
+    def test_voice_mode_plays_thinking_cue_when_speech_endpoints(self):
+        orchestrator = FakeOrchestrator(["Response one"])
+        voice = FakeVoice(
+            wake_results=[True, False],
+            listen_results=["tell me something", None],
+        )
+
+        with redirect_stdout(io.StringIO()):
+            main.run_voice_mode(orchestrator, voice=voice)
+
+        # on_speech_done fires play_thinking_sound the instant the user stops
+        # talking — once for the one spoken request, before the response cue.
+        self.assertEqual(voice.thinking_sounds, 1)
+
     def test_voice_mode_ends_idle_session_and_returns_to_wake_loop(self):
         orchestrator = FakeOrchestrator(["Response one"])
         voice = FakeVoice(

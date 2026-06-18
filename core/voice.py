@@ -299,7 +299,10 @@ class VoiceInterface:
             logger.warning("Startup sound error: %s", e)
 
     def play_thinking_sound(self):
-        """Play a short R2-D2-style curious warble while processing a request."""
+        """Short R2-D2-style curious warble — fires from on_speech_done the
+        instant the user stops talking, signalling "heard you, processing".
+        Plays non-blocking (no sd.wait) so it overlaps the STT + routing +
+        LLM time-to-first-token wait instead of delaying it."""
         if not self.enable_tts:
             return
         try:
@@ -324,7 +327,7 @@ class VoiceInterface:
                 samplerate=self._output_samplerate,
                 device=self._output_device_index,
             )
-            sd.wait()
+            # Intentionally no sd.wait — caller continues straight into STT.
         except Exception as e:
             logger.warning("Thinking sound error: %s", e)
 
