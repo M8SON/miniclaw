@@ -317,6 +317,7 @@ def run_voice_mode(orchestrator, voice=None):
                     with profiling.stage("listen_record"):
                         transcription = voice.listen(
                             max_wait_seconds=conversation_idle_timeout,
+                            on_speech_done=voice.play_thinking_sound,
                         )
 
                     if not transcription:

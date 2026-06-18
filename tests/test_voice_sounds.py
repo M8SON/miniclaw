@@ -38,5 +38,23 @@ class PlayAckSound(unittest.TestCase):
             v.play_ack_sound()  # must not raise
 
 
+class PlayThinkingSoundNonBlocking(unittest.TestCase):
+    def test_does_not_block_on_sd_wait(self):
+        """play_thinking_sound now fires from on_speech_done the instant the
+        user stops talking, just before STT runs. It must play asynchronously
+        (no sd.wait) so it overlaps the STT/processing wait instead of
+        delaying it — matching play_ack_sound / play_response_ready_sound."""
+        from core.voice import VoiceInterface
+        v = VoiceInterface.__new__(VoiceInterface)
+        v.enable_tts = True
+        v._output_samplerate = 48000
+        v._output_device_index = 0
+        with patch("core.voice.sd.play") as mock_play, \
+             patch("core.voice.sd.wait") as mock_wait:
+            v.play_thinking_sound()
+        mock_play.assert_called_once()
+        mock_wait.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -56,6 +56,18 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Recent Durable Milestones
 
+- 2026-06-18: voice "heard you / processing" cue — wired the previously-unused
+  `on_speech_done` hook in the voice loop to `play_thinking_sound` so the R2-D2
+  warble fires the instant speech endpoints, overlapping the silent
+  STT+routing+LLM-TTFT gap instead of leaving dead air (the warble had been dead
+  code since LLM→TTS streaming landed). Made `play_thinking_sound` non-blocking
+  (dropped `sd.wait`) so it can't delay STT. Cue does not fire on idle-timeout.
+  Spec `docs/superpowers/specs/2026-06-18-voice-naturalness-latency-design.md`.
+  Part B of that spec is a docs-only latency tuning playbook — committed defaults
+  left untouched; recommended Pi A/B values: `VAD_MIN_SILENCE_MS` 700→550,
+  `WHISPER_MODEL_CPU` small→base, `MICRO_TIER_ENABLED` false→true, measured via
+  `KAIZEN_PROFILE=true` `[TIMING-SUMMARY]` lines. Implemented + 520 tests green;
+  on-device Pi validation still pending.
 - 2026-05-13: Anthropic prompt caching wired into the Sonnet tool_loop.
   `PromptBuilder.build_cacheable_parts()` returns `(stable, dynamic)`; stable
   carries BASE_PROMPT + vault memory + skipped/invalid + self-update +
@@ -93,8 +105,9 @@ Update this file when durable project context changes. Do not create overlapping
   replaces RMS amplitude threshold in `_record_until_silence` with `VadBackend`
   Protocol + `SileroVadBackend` (primary) + `RmsVadBackend` (fallback) gated by
   `VAD_BACKEND=silero|rms`. Pi smoke-test waived after sufficient conversational
-  validation; branch `feat/voice-pipeline-wave2` pushed to origin (merge to main
-  pending user consent in next session).
+  validation; merged to main in commit `804aa71`. (The `feat/voice-pipeline-wave2`
+  branch was later repurposed for the unrelated 3D-printed enclosure CAD track,
+  worktree `~/linux/kaizen-voice-pipeline`; v0 parts ordered 2026-06-18.)
   silero-vad 6.x via `load_silero_vad()` returns a TorchScript module that only
   accepts **exactly 512 samples at 16 kHz** per call — `SileroVadBackend` keeps
   an internal carry-over buffer to yield 512-sample frames from PyAudio's
