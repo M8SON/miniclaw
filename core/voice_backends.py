@@ -404,6 +404,12 @@ class KokoroTTSBackend:
 
     SENTENCE_TERMINATORS = (".", "?", "!", "\n")
     BUFFER_CAP = 200
+    # The first flush alone sets time-to-first-audio (Kokoro has no in-sentence
+    # streaming), so break it at the earliest clause boundary once it's at least
+    # MIN_FIRST_FLUSH chars — long enough not to sound choppy. Later sentences
+    # already overlap prior playback, so they keep sentence-level flushing.
+    CLAUSE_BOUNDARIES = (",", ";", ":", "—")
+    MIN_FIRST_FLUSH = 30
 
     def _synth_audio(self, text: str):
         """Yield audio chunks for `text` at KOKORO_SAMPLE_RATE float32.
@@ -413,6 +419,26 @@ class KokoroTTSBackend:
         """
         for _, _, audio in self.pipeline(text, voice=self.voice, speed=self.speed):
             yield audio
+
+    def _find_flush_boundary(self, buffer: str, allow_clause: bool) -> int:
+        """Index of the earliest flush point in buffer, or -1 if none.
+
+        Sentence terminators always qualify. When allow_clause is set (the
+        first flush only), clause boundaries also qualify — but only at or
+        past MIN_FIRST_FLUSH - 1, so the first spoken fragment is long enough
+        not to sound choppy while still starting audio fast.
+        """
+        boundary = -1
+        for term in self.SENTENCE_TERMINATORS:
+            idx = buffer.find(term)
+            if idx != -1 and (boundary == -1 or idx < boundary):
+                boundary = idx
+        if allow_clause:
+            for term in self.CLAUSE_BOUNDARIES:
+                idx = buffer.find(term, self.MIN_FIRST_FLUSH - 1)
+                if idx != -1 and (boundary == -1 or idx < boundary):
+                    boundary = idx
+        return boundary
 
     def speak_stream(self, chunks) -> None:
         """Consume LLM text deltas, run Kokoro per sentence, write audio.
@@ -521,25 +547,26 @@ class KokoroTTSBackend:
             writer_thread.start()
 
             buffer = ""
+            first_flush_emitted = False
             for delta in chunks:
                 buffer += delta
                 while True:
-                    boundary = -1
-                    for term in self.SENTENCE_TERMINATORS:
-                        idx = buffer.find(term)
-                        if idx != -1 and (boundary == -1 or idx < boundary):
-                            boundary = idx
+                    boundary = self._find_flush_boundary(
+                        buffer, allow_clause=not first_flush_emitted
+                    )
                     if boundary != -1:
                         sent_text = buffer[: boundary + 1]
                         buffer = buffer[boundary + 1 :]
                         if sent_text.strip():
                             sentence_q.put(sent_text)
+                            first_flush_emitted = True
                         continue
                     if len(buffer) >= self.BUFFER_CAP:
                         cap_text = buffer[: self.BUFFER_CAP]
                         buffer = buffer[self.BUFFER_CAP :]
                         if cap_text.strip():
                             sentence_q.put(cap_text)
+                            first_flush_emitted = True
                         continue
                     break
 

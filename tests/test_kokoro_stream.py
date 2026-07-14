@@ -79,6 +79,52 @@ class SpeakStreamTests(unittest.TestCase):
         self.assertEqual(backend.pipeline.call_count, 0)
 
     @patch("core.voice_backends.sd")
+    def test_first_flush_breaks_at_early_clause_boundary(self, mock_sd):
+        """The first flush drives time-to-first-audio, so it should break at
+        the first clause boundary (comma/em-dash/semicolon/colon) instead of
+        waiting for the whole sentence to be synthesised."""
+        backend = self._make_backend()
+        text = "I caught something that sounds like a list of numbers, but I am not sure."
+        backend.speak_stream(iter([text]))
+
+        flushed = [c.args[0] for c in backend.pipeline.call_args_list]
+        self.assertEqual(
+            flushed[0], "I caught something that sounds like a list of numbers,"
+        )
+        self.assertGreaterEqual(backend.pipeline.call_count, 2)
+
+    @patch("core.voice_backends.sd")
+    def test_first_flush_ignores_clause_boundary_below_min_length(self, mock_sd):
+        """A clause boundary in the first few chars must not trigger a tiny,
+        choppy first flush — the min-length guard defers to the sentence end."""
+        backend = self._make_backend()
+        backend.speak_stream(iter(["Hi, I am here."]))
+
+        flushed = [c.args[0] for c in backend.pipeline.call_args_list]
+        self.assertEqual(flushed[0], "Hi, I am here.")
+        self.assertEqual(backend.pipeline.call_count, 1)
+
+    @patch("core.voice_backends.sd")
+    def test_clause_split_applies_only_to_first_flush(self, mock_sd):
+        """Only the first flush is clause-split; later sentences keep their
+        commas (sentence N+1 synth already overlaps sentence N playback, so
+        there's no first-audio benefit and clause-splitting them only risks
+        choppiness)."""
+        backend = self._make_backend()
+        text = (
+            "The opening clause is quite long indeed, and then it finishes here. "
+            "Second sentence definitely contains a comma, yet stays whole."
+        )
+        backend.speak_stream(iter([text]))
+
+        flushed = [c.args[0] for c in backend.pipeline.call_args_list]
+        self.assertEqual(flushed[0], "The opening clause is quite long indeed,")
+        self.assertEqual(
+            flushed[-1],
+            " Second sentence definitely contains a comma, yet stays whole.",
+        )
+
+    @patch("core.voice_backends.sd")
     def test_first_audio_log_emitted(self, mock_sd):
         backend = self._make_backend()
         with self.assertLogs("core.voice_backends", level="INFO") as captured:
