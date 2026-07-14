@@ -374,6 +374,7 @@ Key environment variables in `.env`:
 | `SKILL_PROMPT_MAX_TOKENS` | `4000` | Approximate token budget for skill instructions in the system prompt |
 | `WAKE_WORD_MODEL` | `hey_jarvis` | openWakeWord bundled model (`hey_jarvis`, `alexa`, `hey_mycroft`, `timer`, `weather`) |
 | `WAKE_WORD_THRESHOLD` | `0.5` | Activation confidence (0.0–1.0); raise to reduce false fires |
+| `BARGE_IN_ENABLED` | `true` | Say the wake word during a response to interrupt playback and start listening; set false to disable |
 | `CONTAINER_MEMORY` | `256m` | Default Docker memory limit per skill |
 | `MEMORY_VAULT_PATH` | `~/.kaizen/memory` | Directory for memory notes (point Obsidian here) |
 | `MEMPALACE_PALACE_PATH` | `~/.mempalace/palace` | Override MemPalace data directory |
@@ -519,7 +520,7 @@ Per-skill Docker build assets live under `skills/<name>/scripts/` (Dockerfile + 
 - [x] Tiered intelligence — deterministic dispatch + Haiku micro-tier + Sonnet (feature-flagged, enable with `MICRO_TIER_ENABLED=true`)
 - [x] AI HAT+ 2 accelerated full transcription (Hailo-backed post-wake STT)
 - [x] Run on boot via systemd (user-level unit with linger)
-- [ ] TTS interruption — stop speaking when user talks over the assistant
+- [x] TTS interruption — stop speaking when user says the wake word over the assistant
 - [ ] AI HAT+ 2 accelerated Kokoro TTS (offload synthesis to Hailo-8L NPU)
 - [ ] GPIO / hardware module skills (lights, sensors, displays)
 - [ ] Camera + vision skills via AI HAT+ 2

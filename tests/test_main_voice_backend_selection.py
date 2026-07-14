@@ -56,6 +56,41 @@ class BuildVoiceInterfaceSelectionTests(unittest.TestCase):
         )
 
 
+    @patch("core.audio_devices.output_samplerate", return_value=48000)
+    @patch("core.audio_devices.resolve_output_device", return_value=0)
+    @patch("core.voice.VoiceInterface")
+    @patch("main.build_wake_backend")
+    @patch("main.build_stt_backend")
+    def test_build_voice_interface_passes_barge_in_disabled(
+        self, mock_build_stt_backend, mock_build_wake_backend, mock_voice_interface,
+        _mock_resolve, _mock_sr,
+    ):
+        mock_build_stt_backend.return_value = (object(), "STT backend: x")
+        mock_build_wake_backend.return_value = (object(), "Wake backend: y")
+        with patch.dict("os.environ", {"BARGE_IN_ENABLED": "false"}):
+            main.build_voice_interface()
+        _, kwargs = mock_voice_interface.call_args
+        self.assertFalse(kwargs["barge_in_enabled"])
+
+    @patch("core.audio_devices.output_samplerate", return_value=48000)
+    @patch("core.audio_devices.resolve_output_device", return_value=0)
+    @patch("core.voice.VoiceInterface")
+    @patch("main.build_wake_backend")
+    @patch("main.build_stt_backend")
+    def test_build_voice_interface_barge_in_defaults_on(
+        self, mock_build_stt_backend, mock_build_wake_backend, mock_voice_interface,
+        _mock_resolve, _mock_sr,
+    ):
+        mock_build_stt_backend.return_value = (object(), "STT backend: x")
+        mock_build_wake_backend.return_value = (object(), "Wake backend: y")
+        import os as _os
+        with patch.dict("os.environ", {}, clear=False):
+            _os.environ.pop("BARGE_IN_ENABLED", None)
+            main.build_voice_interface()
+        _, kwargs = mock_voice_interface.call_args
+        self.assertTrue(kwargs["barge_in_enabled"])
+
+
 class VoiceWakeBackendIntegrationTests(unittest.TestCase):
     @patch("core.voice.pyaudio.PyAudio")
     @patch("core.voice.resolve_input_device", return_value=None)
