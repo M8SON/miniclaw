@@ -448,22 +448,35 @@ class VoiceInterface:
         except Exception as e:
             logger.warning("Ack sound error: %s", e)
 
-    def speak(self, text: str):
+    def speak(self, text: str, interruptible: bool = False) -> bool:
         """Speak text aloud using Kokoro TTS with streaming playback.
 
         Each Kokoro chunk is written to a sounddevice OutputStream as it is
         generated, so the first words play immediately without waiting for the
         full response to be synthesised.
+
+        When interruptible and barge-in is enabled, a wake-word watcher runs
+        during playback; saying the wake word cuts playback. Returns whether a
+        barge-in fired (always False when not interruptible / TTS disabled).
         """
         if not self.enable_tts or self.tts_backend is None:
-            return
+            return False
 
+        interrupt_event = (
+            threading.Event() if interruptible and self.barge_in_enabled else None
+        )
+        if interrupt_event is not None:
+            self._start_barge_in_watcher(interrupt_event)
         try:
-            self.tts_backend.speak(text)
+            self.tts_backend.speak(text, interrupt_event=interrupt_event)
         except Exception as e:
             logger.warning("TTS error: %s", e)
+        finally:
+            if interrupt_event is not None:
+                self._stop_barge_in_watcher()
+        return interrupt_event is not None and interrupt_event.is_set()
 
-    def speak_stream_feeder(self, on_first_chunk=None):
+    def speak_stream_feeder(self, on_first_chunk=None, interruptible=False):
         """Return (push, finalize) for feeding text deltas into a streaming TTS run.
 
         The Kokoro consumer thread is spawned LAZILY on the first non-empty
@@ -474,22 +487,27 @@ class VoiceInterface:
         first non-empty delta arrives. The voice loop uses this to play a
         short R2-D2 'response ready' cue right before Kokoro starts.
 
+        interruptible: when True and barge-in is enabled, a wake-word watcher
+        runs during playback and finalize() returns whether it fired.
+
         When TTS is disabled or no backend is configured, push is a no-op
-        and finalize returns immediately — callers get a uniform interface
-        regardless of TTS availability.
+        and finalize returns False immediately — callers get a uniform
+        interface regardless of TTS availability.
         """
         import queue
-        import threading
 
         if not self.enable_tts or self.tts_backend is None or not hasattr(
             self.tts_backend, "speak_stream"
         ):
             def _push(_delta: str) -> None:
                 return
-            def _finalize() -> None:
-                return
+            def _finalize() -> bool:
+                return False
             return _push, _finalize
 
+        interrupt_event = (
+            threading.Event() if interruptible and self.barge_in_enabled else None
+        )
         q: queue.Queue = queue.Queue()
         SENTINEL = object()
         backend = self.tts_backend
@@ -505,7 +523,7 @@ class VoiceInterface:
 
         def _consume():
             try:
-                backend.speak_stream(_gen())
+                backend.speak_stream(_gen(), interrupt_event=interrupt_event)
             except Exception:
                 logger.exception("speak_stream consumer raised")
 
@@ -526,13 +544,15 @@ class VoiceInterface:
                         on_first_chunk()
                     except Exception:
                         logger.exception("on_first_chunk hook raised")
+                if interrupt_event is not None:
+                    self._start_barge_in_watcher(interrupt_event)
                 _ensure_thread()
             q.put(delta)
 
-        def finalize() -> None:
+        def finalize() -> bool:
             if thread_holder[0] is None:
-                # No deltas ever arrived; nothing to drain or join.
-                return
+                # No deltas ever arrived; nothing to drain, join, or stop.
+                return False
             q.put(SENTINEL)
             # Pi 5 Kokoro can spend 30-60s synthesising a multi-sentence
             # response. 300s is large enough for any reasonable response;
@@ -543,6 +563,9 @@ class VoiceInterface:
                     "Kokoro stream thread did not finish within 300s — "
                     "audio device may be stuck; subsequent turns may glitch"
                 )
+            if interrupt_event is not None:
+                self._stop_barge_in_watcher()
+            return interrupt_event is not None and interrupt_event.is_set()
 
         return push, finalize
 
