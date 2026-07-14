@@ -147,6 +147,40 @@ class SpeakStreamTests(unittest.TestCase):
         self.assertTrue(stream.write.called)
 
 
+class SpeakInterruptTests(unittest.TestCase):
+    def _make_backend(self):
+        from core import voice_backends
+        with patch.object(voice_backends, "KPipeline"):
+            backend = voice_backends.KokoroTTSBackend()
+        backend.pipeline = MagicMock()
+        return backend
+
+    @patch("core.voice_backends.sd")
+    def test_speak_stops_when_interrupted(self, mock_sd):
+        import threading
+        import numpy as np
+        backend = self._make_backend()
+        backend.pipeline.side_effect = lambda *a, **k: iter(
+            [("", "", np.zeros(8192, dtype=np.float32))]
+        )
+        stream = mock_sd.OutputStream.return_value.__enter__.return_value
+        ev = threading.Event()
+        ev.set()
+        backend.speak("Hello there, general.", interrupt_event=ev)
+        stream.write.assert_not_called()
+
+    @patch("core.voice_backends.sd")
+    def test_speak_none_writes_audio(self, mock_sd):
+        import numpy as np
+        backend = self._make_backend()
+        backend.pipeline.side_effect = lambda *a, **k: iter(
+            [("", "", np.zeros(2048, dtype=np.float32))]
+        )
+        stream = mock_sd.OutputStream.return_value.__enter__.return_value
+        backend.speak("Hello.", interrupt_event=None)
+        self.assertTrue(stream.write.called)
+
+
 class KokoroONNXBackendTests(unittest.TestCase):
     """KokoroONNXBackend mirrors KokoroTTSBackend's interface, just with a
     different synth library. Smoke-test the override and the missing-asset

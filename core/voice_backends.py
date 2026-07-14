@@ -586,7 +586,7 @@ class KokoroTTSBackend:
                 flushes, first_ms, total_ms,
             )
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, interrupt_event=None) -> None:
         """Stream generated speech directly to the output device.
 
         Logs perceived latency (time-to-first-audio-sample) separately
@@ -602,9 +602,15 @@ class KokoroTTSBackend:
             device=self.output_device,
         ) as stream:
             for audio in self._synth_audio(text):
+                if interrupt_event is not None and interrupt_event.is_set():
+                    break
                 if first_chunk_at is None:
                     first_chunk_at = time.perf_counter()
-                stream.write(resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate))
+                resampled = resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
+                for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
+                    if interrupt_event is not None and interrupt_event.is_set():
+                        break
+                    stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
         total_ms = int((time.perf_counter() - t0) * 1000)
         if first_chunk_at is None:
             logger.info("Kokoro TTS: %dms total (no audio produced)", total_ms)
