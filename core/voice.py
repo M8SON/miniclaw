@@ -180,6 +180,7 @@ class VoiceInterface:
         thread = threading.Thread(target=_watch, daemon=True, name="barge-in-watcher")
         thread.start()
         self._barge_in = (audio, stream, stop_event, thread)
+        logger.info("Barge-in watcher active (say the wake word to interrupt)")
 
     def _stop_barge_in_watcher(self) -> None:
         """Stop and tear down the watcher. Idempotent."""
