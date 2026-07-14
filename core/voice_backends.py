@@ -404,6 +404,7 @@ class KokoroTTSBackend:
 
     SENTENCE_TERMINATORS = (".", "?", "!", "\n")
     BUFFER_CAP = 200
+    WRITE_SUB_BLOCK = 1024  # frames per stream.write, so a barge-in cut lands within ~tens of ms
 
     def _synth_audio(self, text: str):
         """Yield audio chunks for `text` at KOKORO_SAMPLE_RATE float32.
@@ -414,7 +415,7 @@ class KokoroTTSBackend:
         for _, _, audio in self.pipeline(text, voice=self.voice, speed=self.speed):
             yield audio
 
-    def speak_stream(self, chunks) -> None:
+    def speak_stream(self, chunks, interrupt_event=None) -> None:
         """Consume LLM text deltas, run Kokoro per sentence, write audio.
 
         Three-stage pipeline that overlaps synthesis with playback:
@@ -440,6 +441,9 @@ class KokoroTTSBackend:
         import queue
         import threading
 
+        def _interrupted() -> bool:
+            return interrupt_event is not None and interrupt_event.is_set()
+
         SENTINEL = object()
         sentence_q: queue.Queue = queue.Queue()
         # Bounded queue — a runaway synth (e.g. Kokoro returning huge audio)
@@ -457,6 +461,10 @@ class KokoroTTSBackend:
                 if sent is SENTINEL:
                     audio_q.put(SENTINEL)
                     return
+                if _interrupted():
+                    # Stop synthesising audio nobody will hear; keep draining
+                    # sentence_q until SENTINEL so the delta loop never blocks.
+                    continue
                 if not sent.strip():
                     continue
                 flushes_counter[0] += 1
@@ -467,6 +475,8 @@ class KokoroTTSBackend:
                 audio_samples = 0
                 try:
                     for audio in self._synth_audio(sent):
+                        if _interrupted():
+                            break
                         if t_first_chunk is None:
                             t_first_chunk = time.perf_counter()
                         chunks_n += 1
@@ -505,11 +515,15 @@ class KokoroTTSBackend:
                     audio = audio_q.get()
                     if audio is SENTINEL:
                         return
+                    if _interrupted():
+                        continue  # discard; keep the queue moving so synth never blocks
                     if first_audio_at[0] is None:
                         first_audio_at[0] = time.perf_counter()
-                    stream.write(
-                        resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
-                    )
+                    resampled = resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
+                    for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
+                        if _interrupted():
+                            break
+                        stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
 
             synth_thread = threading.Thread(
                 target=synth_worker, daemon=True, name="kokoro-synth"
@@ -522,6 +536,8 @@ class KokoroTTSBackend:
 
             buffer = ""
             for delta in chunks:
+                if _interrupted():
+                    break  # stop feeding; SENTINEL below winds the pipeline down
                 buffer += delta
                 while True:
                     boundary = -1
@@ -543,7 +559,7 @@ class KokoroTTSBackend:
                         continue
                     break
 
-            if buffer.strip():
+            if not _interrupted() and buffer.strip():
                 sentence_q.put(buffer)
             sentence_q.put(SENTINEL)
 

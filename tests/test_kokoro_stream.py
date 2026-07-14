@@ -90,6 +90,62 @@ class SpeakStreamTests(unittest.TestCase):
             f"expected a stream timing log, got: {msgs}",
         )
 
+    @patch("core.voice_backends.sd")
+    def test_interrupt_before_playback_writes_nothing(self, mock_sd):
+        import threading
+        import numpy as np
+        backend = self._make_backend()
+        backend.pipeline.side_effect = lambda *a, **k: iter(
+            [("", "", np.zeros(4096, dtype=np.float32))]
+        )
+        stream = mock_sd.OutputStream.return_value.__enter__.return_value
+        ev = threading.Event()
+        ev.set()  # already interrupted before any audio is written
+        backend.speak_stream(iter(["Hello.", " World."]), interrupt_event=ev)
+        stream.write.assert_not_called()
+
+    @patch("core.voice_backends.sd")
+    def test_no_deadlock_when_interrupted_midstream(self, mock_sd):
+        """Interrupt after playback starts with far more audio queued than
+        audio_q's maxsize (8). All threads must wind down and speak_stream
+        must return — the highest-risk piece."""
+        import threading
+        import numpy as np
+        backend = self._make_backend()
+        backend.pipeline.side_effect = lambda *a, **k: iter(
+            [("", "", np.zeros(2048, dtype=np.float32))]
+        )
+        stream = mock_sd.OutputStream.return_value.__enter__.return_value
+        ev = threading.Event()
+        writes = [0]
+
+        def fake_write(_buf):
+            writes[0] += 1
+            if writes[0] == 1:
+                ev.set()  # interrupt right after the first sub-block
+
+        stream.write.side_effect = fake_write
+        sentences = [f"Sentence number {i}." for i in range(20)]
+        done = threading.Event()
+
+        def run():
+            backend.speak_stream(iter(sentences), interrupt_event=ev)
+            done.set()
+
+        threading.Thread(target=run, daemon=True).start()
+        self.assertTrue(done.wait(timeout=10), "speak_stream deadlocked after interrupt")
+
+    @patch("core.voice_backends.sd")
+    def test_none_interrupt_writes_audio(self, mock_sd):
+        import numpy as np
+        backend = self._make_backend()
+        backend.pipeline.side_effect = lambda *a, **k: iter(
+            [("", "", np.zeros(2048, dtype=np.float32))]
+        )
+        stream = mock_sd.OutputStream.return_value.__enter__.return_value
+        backend.speak_stream(iter(["Hello world."]), interrupt_event=None)
+        self.assertTrue(stream.write.called)
+
 
 class KokoroONNXBackendTests(unittest.TestCase):
     """KokoroONNXBackend mirrors KokoroTTSBackend's interface, just with a
