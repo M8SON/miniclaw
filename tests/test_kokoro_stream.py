@@ -146,6 +146,38 @@ class SpeakStreamTests(unittest.TestCase):
         backend.speak_stream(iter(["Hello world."]), interrupt_event=None)
         self.assertTrue(stream.write.called)
 
+    @patch("core.voice_backends.sd")
+    def test_interrupt_during_playback_does_not_wait_for_inflight_synth(self, mock_sd):
+        """A barge-in that lands while the pipeline is draining must not stall
+        for the uninterruptible in-flight Kokoro synth. speak_stream returns
+        promptly; the daemon threads wind down in the background."""
+        import threading
+        import time
+        import numpy as np
+        backend = self._make_backend()
+        synth_started = threading.Event()
+
+        def slow_synth(*a, **k):
+            synth_started.set()
+            time.sleep(5)  # simulate one uninterruptible Kokoro synth call
+            return iter([("", "", np.zeros(2048, dtype=np.float32))])
+
+        backend.pipeline.side_effect = slow_synth
+        ev = threading.Event()
+        done = threading.Event()
+
+        def run():
+            backend.speak_stream(iter(["A sentence."]), interrupt_event=ev)
+            done.set()
+
+        threading.Thread(target=run, daemon=True).start()
+        self.assertTrue(synth_started.wait(timeout=3), "synth never started")
+        ev.set()  # barge in while the synth call is blocked
+        self.assertTrue(
+            done.wait(timeout=3),
+            "speak_stream stalled on the in-flight synth after interrupt",
+        )
+
 
 class SpeakInterruptTests(unittest.TestCase):
     def _make_backend(self):

@@ -507,23 +507,33 @@ class KokoroTTSBackend:
             dtype="float32",
             device=self.output_device,
         ) as stream:
+            writer_done_writing = threading.Event()
+
             def writer_worker():
-                """Drain audio_q to the device. Blocks on stream.write so
-                playback is naturally paced; freed audio-queue slots let
-                synth_worker get further ahead during long playback."""
-                while True:
-                    audio = audio_q.get()
-                    if audio is SENTINEL:
-                        return
-                    if _interrupted():
-                        continue  # discard; keep the queue moving so synth never blocks
-                    if first_audio_at[0] is None:
-                        first_audio_at[0] = time.perf_counter()
-                    resampled = resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
-                    for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
+                """Drain audio_q to the device in sub-blocks. Blocks on
+                stream.write so playback is naturally paced. On interrupt, stop
+                writing (checked between sub-blocks) but keep draining so synth
+                never blocks on the bounded audio_q.put. Sets
+                writer_done_writing once it has stopped touching the stream, so
+                the caller can close the OutputStream without racing a write."""
+                try:
+                    while True:
+                        audio = audio_q.get()
+                        if audio is SENTINEL:
+                            return
                         if _interrupted():
-                            break
-                        stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
+                            continue  # discard; keep the queue moving so synth never blocks
+                        if first_audio_at[0] is None:
+                            first_audio_at[0] = time.perf_counter()
+                        resampled = resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
+                        for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
+                            if _interrupted():
+                                break
+                            stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
+                        if _interrupted():
+                            writer_done_writing.set()
+                finally:
+                    writer_done_writing.set()
 
             synth_thread = threading.Thread(
                 target=synth_worker, daemon=True, name="kokoro-synth"
@@ -563,11 +573,22 @@ class KokoroTTSBackend:
                 sentence_q.put(buffer)
             sentence_q.put(SENTINEL)
 
-            # Drain order matters: synth must finish (and put SENTINEL on
-            # audio_q) before writer can complete; writer must finish before
-            # the OutputStream context manager exits and closes the device.
-            synth_thread.join()
-            writer_thread.join()
+            # Normal drain: synth puts SENTINEL on audio_q, writer plays it out
+            # and returns, then the OutputStream closes below. On a barge-in,
+            # poll instead of hard-joining — Kokoro synthesises each sentence in
+            # one call that can't be preempted, so a plain join() stalls
+            # teardown for the whole in-flight synth (observed ~5s of dead air
+            # on the Pi). We break out within ~0.2s, wait only until the writer
+            # has stopped touching the device, then return and let the daemon
+            # synth/writer threads wind down in the background (synth_worker
+            # skips all further queued sentences, so it makes at most one more
+            # Kokoro call before exiting).
+            while writer_thread.is_alive() and not _interrupted():
+                writer_thread.join(timeout=0.2)
+            if _interrupted():
+                writer_done_writing.wait(timeout=1.0)
+            else:
+                synth_thread.join()
 
         total_ms = int((time.perf_counter() - t0) * 1000)
         flushes = flushes_counter[0]
