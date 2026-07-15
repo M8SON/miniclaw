@@ -178,6 +178,30 @@ class SpeakStreamTests(unittest.TestCase):
             "speak_stream stalled on the in-flight synth after interrupt",
         )
 
+    @patch("core.voice_backends.sd")
+    def test_no_misleading_no_audio_log_on_interrupt(self, mock_sd):
+        """A flush abandoned by a barge-in must not log the misleading
+        'NO AUDIO' per-flush line — its audio was deliberately discarded."""
+        import threading
+        import numpy as np
+        backend = self._make_backend()
+        ev = threading.Event()
+
+        def synth_then_interrupt(*a, **k):
+            # Kokoro finishes its blocking call, then the barge-in lands before
+            # the writer consumes the audio — the synth loop breaks on it.
+            ev.set()
+            return iter([("", "", np.zeros(2048, dtype=np.float32))])
+
+        backend.pipeline.side_effect = synth_then_interrupt
+        with self.assertLogs("core.voice_backends", level="INFO") as captured:
+            backend.speak_stream(iter(["A sentence."]), interrupt_event=ev)
+        msgs = [r.getMessage() for r in captured.records]
+        self.assertFalse(
+            any("NO AUDIO" in m for m in msgs),
+            f"abandoned-synth flush should not log NO AUDIO, got: {msgs}",
+        )
+
 
 class SpeakInterruptTests(unittest.TestCase):
     def _make_backend(self):

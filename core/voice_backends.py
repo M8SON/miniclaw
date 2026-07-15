@@ -485,6 +485,10 @@ class KokoroTTSBackend:
                 except Exception:
                     logger.exception("Kokoro synth raised on flush #%d", flush_n)
                     continue
+                if _interrupted():
+                    # This flush was abandoned by a barge-in — its audio is
+                    # discarded, so skip the (misleading "NO AUDIO") per-flush log.
+                    continue
                 synth_ms = int((time.perf_counter() - t_synth_start) * 1000)
                 if t_first_chunk is None:
                     logger.info(
