@@ -410,6 +410,7 @@ class KokoroTTSBackend:
     # already overlap prior playback, so they keep sentence-level flushing.
     CLAUSE_BOUNDARIES = (",", ";", ":", "—")
     MIN_FIRST_FLUSH = 30
+    WRITE_SUB_BLOCK = 1024  # frames per stream.write, so a barge-in cut lands within ~tens of ms
 
     def _synth_audio(self, text: str):
         """Yield audio chunks for `text` at KOKORO_SAMPLE_RATE float32.
@@ -440,7 +441,7 @@ class KokoroTTSBackend:
                     boundary = idx
         return boundary
 
-    def speak_stream(self, chunks) -> None:
+    def speak_stream(self, chunks, interrupt_event=None) -> None:
         """Consume LLM text deltas, run Kokoro per sentence, write audio.
 
         Three-stage pipeline that overlaps synthesis with playback:
@@ -466,6 +467,9 @@ class KokoroTTSBackend:
         import queue
         import threading
 
+        def _interrupted() -> bool:
+            return interrupt_event is not None and interrupt_event.is_set()
+
         SENTINEL = object()
         sentence_q: queue.Queue = queue.Queue()
         # Bounded queue — a runaway synth (e.g. Kokoro returning huge audio)
@@ -483,6 +487,10 @@ class KokoroTTSBackend:
                 if sent is SENTINEL:
                     audio_q.put(SENTINEL)
                     return
+                if _interrupted():
+                    # Stop synthesising audio nobody will hear; keep draining
+                    # sentence_q until SENTINEL so the delta loop never blocks.
+                    continue
                 if not sent.strip():
                     continue
                 flushes_counter[0] += 1
@@ -493,6 +501,8 @@ class KokoroTTSBackend:
                 audio_samples = 0
                 try:
                     for audio in self._synth_audio(sent):
+                        if _interrupted():
+                            break
                         if t_first_chunk is None:
                             t_first_chunk = time.perf_counter()
                         chunks_n += 1
@@ -500,6 +510,10 @@ class KokoroTTSBackend:
                         audio_q.put(audio)
                 except Exception:
                     logger.exception("Kokoro synth raised on flush #%d", flush_n)
+                    continue
+                if _interrupted():
+                    # This flush was abandoned by a barge-in — its audio is
+                    # discarded, so skip the (misleading "NO AUDIO") per-flush log.
                     continue
                 synth_ms = int((time.perf_counter() - t_synth_start) * 1000)
                 if t_first_chunk is None:
@@ -523,19 +537,33 @@ class KokoroTTSBackend:
             dtype="float32",
             device=self.output_device,
         ) as stream:
+            writer_done_writing = threading.Event()
+
             def writer_worker():
-                """Drain audio_q to the device. Blocks on stream.write so
-                playback is naturally paced; freed audio-queue slots let
-                synth_worker get further ahead during long playback."""
-                while True:
-                    audio = audio_q.get()
-                    if audio is SENTINEL:
-                        return
-                    if first_audio_at[0] is None:
-                        first_audio_at[0] = time.perf_counter()
-                    stream.write(
-                        resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
-                    )
+                """Drain audio_q to the device in sub-blocks. Blocks on
+                stream.write so playback is naturally paced. On interrupt, stop
+                writing (checked between sub-blocks) but keep draining so synth
+                never blocks on the bounded audio_q.put. Sets
+                writer_done_writing once it has stopped touching the stream, so
+                the caller can close the OutputStream without racing a write."""
+                try:
+                    while True:
+                        audio = audio_q.get()
+                        if audio is SENTINEL:
+                            return
+                        if _interrupted():
+                            continue  # discard; keep the queue moving so synth never blocks
+                        if first_audio_at[0] is None:
+                            first_audio_at[0] = time.perf_counter()
+                        resampled = resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
+                        for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
+                            if _interrupted():
+                                break
+                            stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
+                        if _interrupted():
+                            writer_done_writing.set()
+                finally:
+                    writer_done_writing.set()
 
             synth_thread = threading.Thread(
                 target=synth_worker, daemon=True, name="kokoro-synth"
@@ -549,6 +577,8 @@ class KokoroTTSBackend:
             buffer = ""
             first_flush_emitted = False
             for delta in chunks:
+                if _interrupted():
+                    break  # stop feeding; SENTINEL below winds the pipeline down
                 buffer += delta
                 while True:
                     boundary = self._find_flush_boundary(
@@ -570,15 +600,26 @@ class KokoroTTSBackend:
                         continue
                     break
 
-            if buffer.strip():
+            if not _interrupted() and buffer.strip():
                 sentence_q.put(buffer)
             sentence_q.put(SENTINEL)
 
-            # Drain order matters: synth must finish (and put SENTINEL on
-            # audio_q) before writer can complete; writer must finish before
-            # the OutputStream context manager exits and closes the device.
-            synth_thread.join()
-            writer_thread.join()
+            # Normal drain: synth puts SENTINEL on audio_q, writer plays it out
+            # and returns, then the OutputStream closes below. On a barge-in,
+            # poll instead of hard-joining — Kokoro synthesises each sentence in
+            # one call that can't be preempted, so a plain join() stalls
+            # teardown for the whole in-flight synth (observed ~5s of dead air
+            # on the Pi). We break out within ~0.2s, wait only until the writer
+            # has stopped touching the device, then return and let the daemon
+            # synth/writer threads wind down in the background (synth_worker
+            # skips all further queued sentences, so it makes at most one more
+            # Kokoro call before exiting).
+            while writer_thread.is_alive() and not _interrupted():
+                writer_thread.join(timeout=0.2)
+            if _interrupted():
+                writer_done_writing.wait(timeout=1.0)
+            else:
+                synth_thread.join()
 
         total_ms = int((time.perf_counter() - t0) * 1000)
         flushes = flushes_counter[0]
@@ -597,7 +638,7 @@ class KokoroTTSBackend:
                 flushes, first_ms, total_ms,
             )
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, interrupt_event=None) -> None:
         """Stream generated speech directly to the output device.
 
         Logs perceived latency (time-to-first-audio-sample) separately
@@ -613,9 +654,15 @@ class KokoroTTSBackend:
             device=self.output_device,
         ) as stream:
             for audio in self._synth_audio(text):
+                if interrupt_event is not None and interrupt_event.is_set():
+                    break
                 if first_chunk_at is None:
                     first_chunk_at = time.perf_counter()
-                stream.write(resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate))
+                resampled = resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
+                for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
+                    if interrupt_event is not None and interrupt_event.is_set():
+                        break
+                    stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
         total_ms = int((time.perf_counter() - t0) * 1000)
         if first_chunk_at is None:
             logger.info("Kokoro TTS: %dms total (no audio produced)", total_ms)

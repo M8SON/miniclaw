@@ -221,6 +221,7 @@ Per-skill overrides for `memory`, `read_only`, `extra_tmpfs`, and `volumes` are 
 | `WHISPER_MODEL` | `base` | STT model size |
 | `WAKE_WORD_MODEL` | `hey_jarvis` | openWakeWord bundled model (`hey_jarvis`, `alexa`, `hey_mycroft`, `timer`, `weather`) |
 | `WAKE_WORD_THRESHOLD` | `0.5` | openWakeWord activation confidence (0.0–1.0); raise to reduce false fires |
+| `BARGE_IN_ENABLED` | `true` | Say the wake word during a response to interrupt playback and start listening; set false to disable |
 | `ENABLE_TTS` | `true` | Set false to disable speech output |
 | `TTS_VOICE` | `af_heart` | Kokoro voice (af_heart, am_adam, bm_george, bf_emma, etc.) |
 | `TTS_SPEED` | `1.2` | Speech rate (1.0 = normal, higher = faster) |
@@ -240,7 +241,7 @@ Per-skill overrides for `memory`, `read_only`, `extra_tmpfs`, and `volumes` are 
 ## What's Next (from roadmap)
 
 The next planned items in priority order:
-1. **TTS interruption** — Stop speaking when user talks over the assistant (skipped for now — mic sensitivity makes this unreliable in noisy environments; revisit when fine-tuning for Pi)
+1. **TTS interruption** — shipped: say the wake word ("hey jarvis") mid-response to cut playback and drop into the next listen (`BARGE_IN_ENABLED`, default on; wake-word trigger, not VAD). On-device XVF3800 full-duplex validation still pending.
 2. **AI HAT+ 2 Kokoro integration** — Offload Kokoro synthesis to NPU; requires compiling model to Hailo Executable Format (.hef)
 3. **AI HAT+ 2 memory acceleration** — Explore Hailo-assisted embeddings or reranking for session recall / MemPalace-adjacent retrieval once Pi-side Whisper validation is complete
 4. **GPIO / hardware module skills** — lights, sensors, displays (waiting on Pi hardware)

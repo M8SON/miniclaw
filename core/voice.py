@@ -11,6 +11,7 @@ import os
 import wave
 import tempfile
 import logging
+import threading
 
 import numpy as np
 import pyaudio
@@ -57,6 +58,7 @@ class VoiceInterface:
         display_wake_word: str = "hey jarvis",
         vad_backend=None,
         vad_min_silence_ms: int = 700,
+        barge_in_enabled: bool = False,
     ):
         self.enable_tts = enable_tts
         self.silence_threshold = silence_threshold
@@ -77,6 +79,11 @@ class VoiceInterface:
         # blocked in PortAudio's C-extension when the signal arrives.
         self._active_audio = None
         self._active_stream = None
+
+        # Barge-in: wake-word watcher active only during response playback.
+        # Handle is (audio, stream, stop_event, thread) or None.
+        self.barge_in_enabled = barge_in_enabled
+        self._barge_in = None
 
         self.stt_backend = stt_backend or WhisperBackend(
             transcription_model=transcription_model,
@@ -126,6 +133,68 @@ class VoiceInterface:
             except Exception:
                 pass
 
+    def _start_barge_in_watcher(self, interrupt_event) -> None:
+        """Run a wake-word watcher on its own mic stream during playback.
+
+        Reuses self.wake_backend (the main wake loop is idle mid-conversation).
+        On a wake hit it sets interrupt_event, which the TTS writer polls to
+        cut playback. No-op when disabled; if the mic can't be opened (device
+        busy / no full-duplex on the XVF3800) the feature goes silently
+        inactive this turn rather than crashing the loop."""
+        if not self.barge_in_enabled:
+            return
+        try:
+            audio = pyaudio.PyAudio()
+            stream = audio.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                input=True,
+                input_device_index=self._input_device_index,
+                frames_per_buffer=self.CHUNK,
+            )
+        except Exception as e:
+            logger.warning(
+                "Barge-in watcher could not open mic; inactive this turn: %s", e
+            )
+            self._barge_in = None
+            return
+
+        # Clear stale features so the watcher doesn't fire on the tail of the
+        # prior wake event (same reasoning as wait_for_wake_word).
+        self.wake_backend.reset()
+        stop_event = threading.Event()
+
+        def _watch():
+            try:
+                while not stop_event.is_set():
+                    data = stream.read(self.CHUNK, exception_on_overflow=False)
+                    chunk_int16 = np.frombuffer(data, dtype=np.int16)
+                    if self.wake_backend.detect(chunk_int16):
+                        logger.info("Barge-in wake word detected")
+                        interrupt_event.set()
+                        return
+            except Exception:
+                logger.exception("Barge-in watcher thread error")
+
+        thread = threading.Thread(target=_watch, daemon=True, name="barge-in-watcher")
+        thread.start()
+        self._barge_in = (audio, stream, stop_event, thread)
+        logger.info("Barge-in watcher active (say the wake word to interrupt)")
+
+    def _stop_barge_in_watcher(self) -> None:
+        """Stop and tear down the watcher. Idempotent."""
+        handle = self._barge_in
+        if handle is None:
+            return
+        audio, stream, stop_event, thread = handle
+        stop_event.set()
+        thread.join(timeout=2.0)
+        if thread.is_alive():
+            logger.warning("Barge-in watcher did not join within 2s")
+        self._close_pyaudio(audio, stream)
+        self._barge_in = None
+
     def shutdown(self) -> None:
         """Release every audio resource this VoiceInterface owns.
 
@@ -135,6 +204,7 @@ class VoiceInterface:
         _record_until_silence (PyAudio's C-level stream.read can pin
         /dev/snd until the device is explicitly terminated, which strands
         the next ./run.sh --voice with Errno -9996 on the XVF3800)."""
+        self._stop_barge_in_watcher()
         self._close_pyaudio(self._shared_audio, self._shared_stream)
         self._shared_audio = None
         self._shared_stream = None
@@ -379,22 +449,35 @@ class VoiceInterface:
         except Exception as e:
             logger.warning("Ack sound error: %s", e)
 
-    def speak(self, text: str):
+    def speak(self, text: str, interruptible: bool = False) -> bool:
         """Speak text aloud using Kokoro TTS with streaming playback.
 
         Each Kokoro chunk is written to a sounddevice OutputStream as it is
         generated, so the first words play immediately without waiting for the
         full response to be synthesised.
+
+        When interruptible and barge-in is enabled, a wake-word watcher runs
+        during playback; saying the wake word cuts playback. Returns whether a
+        barge-in fired (always False when not interruptible / TTS disabled).
         """
         if not self.enable_tts or self.tts_backend is None:
-            return
+            return False
 
+        interrupt_event = (
+            threading.Event() if interruptible and self.barge_in_enabled else None
+        )
+        if interrupt_event is not None:
+            self._start_barge_in_watcher(interrupt_event)
         try:
-            self.tts_backend.speak(text)
+            self.tts_backend.speak(text, interrupt_event=interrupt_event)
         except Exception as e:
             logger.warning("TTS error: %s", e)
+        finally:
+            if interrupt_event is not None:
+                self._stop_barge_in_watcher()
+        return interrupt_event is not None and interrupt_event.is_set()
 
-    def speak_stream_feeder(self, on_first_chunk=None):
+    def speak_stream_feeder(self, on_first_chunk=None, interruptible=False):
         """Return (push, finalize) for feeding text deltas into a streaming TTS run.
 
         The Kokoro consumer thread is spawned LAZILY on the first non-empty
@@ -405,22 +488,27 @@ class VoiceInterface:
         first non-empty delta arrives. The voice loop uses this to play a
         short R2-D2 'response ready' cue right before Kokoro starts.
 
+        interruptible: when True and barge-in is enabled, a wake-word watcher
+        runs during playback and finalize() returns whether it fired.
+
         When TTS is disabled or no backend is configured, push is a no-op
-        and finalize returns immediately — callers get a uniform interface
-        regardless of TTS availability.
+        and finalize returns False immediately — callers get a uniform
+        interface regardless of TTS availability.
         """
         import queue
-        import threading
 
         if not self.enable_tts or self.tts_backend is None or not hasattr(
             self.tts_backend, "speak_stream"
         ):
             def _push(_delta: str) -> None:
                 return
-            def _finalize() -> None:
-                return
+            def _finalize() -> bool:
+                return False
             return _push, _finalize
 
+        interrupt_event = (
+            threading.Event() if interruptible and self.barge_in_enabled else None
+        )
         q: queue.Queue = queue.Queue()
         SENTINEL = object()
         backend = self.tts_backend
@@ -436,7 +524,7 @@ class VoiceInterface:
 
         def _consume():
             try:
-                backend.speak_stream(_gen())
+                backend.speak_stream(_gen(), interrupt_event=interrupt_event)
             except Exception:
                 logger.exception("speak_stream consumer raised")
 
@@ -457,13 +545,15 @@ class VoiceInterface:
                         on_first_chunk()
                     except Exception:
                         logger.exception("on_first_chunk hook raised")
+                if interrupt_event is not None:
+                    self._start_barge_in_watcher(interrupt_event)
                 _ensure_thread()
             q.put(delta)
 
-        def finalize() -> None:
+        def finalize() -> bool:
             if thread_holder[0] is None:
-                # No deltas ever arrived; nothing to drain or join.
-                return
+                # No deltas ever arrived; nothing to drain, join, or stop.
+                return False
             q.put(SENTINEL)
             # Pi 5 Kokoro can spend 30-60s synthesising a multi-sentence
             # response. 300s is large enough for any reasonable response;
@@ -474,6 +564,9 @@ class VoiceInterface:
                     "Kokoro stream thread did not finish within 300s — "
                     "audio device may be stuck; subsequent turns may glitch"
                 )
+            if interrupt_event is not None:
+                self._stop_barge_in_watcher()
+            return interrupt_event is not None and interrupt_event.is_set()
 
         return push, finalize
 

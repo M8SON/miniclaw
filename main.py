@@ -131,6 +131,8 @@ def build_voice_interface():
     tts_backend, tts_status = _build_tts_backend(enable_tts, tts_voice, tts_speed)
     print(tts_status)
 
+    barge_in_enabled = os.getenv("BARGE_IN_ENABLED", "true").lower() == "true"
+
     return VoiceInterface(
         transcription_model=transcription_model_cpu,
         display_wake_word=_display_wake_word(),
@@ -144,6 +146,7 @@ def build_voice_interface():
         wake_backend=wake_backend,
         vad_backend=vad_backend,
         vad_min_silence_ms=vad_min_silence_ms,
+        barge_in_enabled=barge_in_enabled,
     )
 
 
@@ -344,6 +347,7 @@ def run_voice_mode(orchestrator, voice=None):
                         # adding any.
                         push_raw, finalize = voice.speak_stream_feeder(
                             on_first_chunk=voice.play_response_ready_sound,
+                            interruptible=True,
                         )
                         try:
                             response = orchestrator.process_message(
@@ -356,7 +360,10 @@ def run_voice_mode(orchestrator, voice=None):
                             if response:
                                 print(f"Assistant: {response}\n")
                             with profiling.stage("tts"):
-                                finalize()
+                                interrupted = finalize()
+                            if interrupted:
+                                print("[barge-in — listening]")
+                                continue
                         except Exception:
                             finalize()
                             raise
@@ -369,7 +376,10 @@ def run_voice_mode(orchestrator, voice=None):
                             print(f"Assistant: {response}\n")
                             voice.play_response_ready_sound()
                             with profiling.stage("tts"):
-                                voice.speak(response)
+                                interrupted = voice.speak(response, interruptible=True)
+                            if interrupted:
+                                print("[barge-in — listening]")
+                                continue
 
                 print("Listening...")
 

@@ -71,7 +71,7 @@ class FakeVoice:
     def shutdown(self):
         self.shutdown_calls += 1
 
-    def speak_stream_feeder(self, on_first_chunk=None):
+    def speak_stream_feeder(self, on_first_chunk=None, interruptible=False):
         chunks = []
         first_seen = [False]
 
@@ -84,10 +84,11 @@ class FakeVoice:
                     on_first_chunk()
             chunks.append(delta)
 
-        def finalize() -> None:
+        def finalize() -> bool:
             if chunks:
                 self.spoken.append("".join(chunks))
             chunks.clear()
+            return False
 
         return push, finalize
 
@@ -104,8 +105,9 @@ class FakeVoice:
             on_speech_done()
         return result
 
-    def speak(self, text):
+    def speak(self, text, interruptible=False):
         self.spoken.append(text)
+        return False
 
     def play_startup_sound(self):
         self.startup_sounds += 1
