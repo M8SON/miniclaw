@@ -1,7 +1,39 @@
 # First-answer latency: warm-on-wake + boot warm-up
 
 **Date:** 2026-07-18
-**Status:** Design — approved, pending implementation plan
+**Status:** Implemented, measured on-device, **warm-ups reverted** — the premise did not hold (see Outcome). VAD change and profiling fix kept.
+
+## Outcome (2026-07-18, on-device)
+
+Built and merged all four changes, then measured on the Pi. Result: the two
+warm-ups delivered **no first-answer latency benefit**, and the design premise
+was wrong.
+
+- **Prompt-cache warm-up is not a latency lever.** The warm-up worked
+  (`cache_read=2549` confirmed on the first turn), but the LLM leg did not get
+  faster — a warm turn measured `llm_claude=4087ms` while a *cold* turn measured
+  `1700ms`. Run-to-run API/generation variance swamps any prefill saving; the
+  cold prompt cache showed up as `cache_write` in telemetry but was never ~3s of
+  wall-clock latency. We optimized a cost/telemetry artifact, not felt latency.
+- **STT warm-up gave nothing** (~1600–1800ms with or without it) and it **slowed
+  the greeting** via CPU contention (greeting first-audio 4255ms with it on vs
+  3025ms off) — exactly the review's Minor #1.
+- **What actually dominates first-answer latency:** Kokoro time-to-first-audio
+  (1.5–6s, highly variable, at the fp32 CPU floor) and LLM output generation +
+  network. Real user turns also frequently route to tool calls (weather,
+  web-search = 2 LLM rounds + a container ≈ 13–16s).
+
+**Kept:** `VAD_MIN_SILENCE_MS` 1200→700 (~0.5s/turn, unambiguous) and the
+profiling import-order fix (`KAIZEN_PROFILE` from `.env` now works).
+**Reverted:** `warm_prompt_cache`, `warm_stt`, the `VOICE_WARMUP` wiring, and
+their tests.
+
+**Next lever (separate work):** reduce Kokoro time-to-first-audio (flush
+synthesis after fewer characters, or Hailo offload).
+
+---
+
+*Original design below (retained for the record).*
 **Related:** `2026-06-18-voice-naturalness-latency-design.md` (Part B env-tuning; superseded here for the first-answer case)
 
 ## Problem
