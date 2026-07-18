@@ -383,6 +383,18 @@ except ImportError:
     _KOKORO_ONNX_AVAILABLE = False
 
 
+def _configured_min_first_flush(default: int) -> int:
+    """First-flush threshold (chars) for TTS, from KOKORO_MIN_FIRST_FLUSH.
+
+    Read at backend construction (after load_dotenv), not import. Floor-guarded
+    so a bad/zero/negative value can't disable first-flush; non-numeric falls
+    back to `default`."""
+    try:
+        return max(1, int(os.getenv("KOKORO_MIN_FIRST_FLUSH", str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
 class KokoroTTSBackend:
     """Text-to-speech backend using the kokoro PyTorch package."""
 
@@ -401,6 +413,7 @@ class KokoroTTSBackend:
         self.output_device = output_device
         self.output_samplerate = output_samplerate or KOKORO_SAMPLE_RATE
         self.pipeline = KPipeline(lang_code="a")
+        self.MIN_FIRST_FLUSH = _configured_min_first_flush(type(self).MIN_FIRST_FLUSH)
 
     SENTENCE_TERMINATORS = (".", "?", "!", "\n")
     BUFFER_CAP = 200
@@ -409,7 +422,7 @@ class KokoroTTSBackend:
     # MIN_FIRST_FLUSH chars — long enough not to sound choppy. Later sentences
     # already overlap prior playback, so they keep sentence-level flushing.
     CLAUSE_BOUNDARIES = (",", ";", ":", "—")
-    MIN_FIRST_FLUSH = 30
+    MIN_FIRST_FLUSH = 20
     WRITE_SUB_BLOCK = 1024  # frames per stream.write, so a barge-in cut lands within ~tens of ms
 
     def _synth_audio(self, text: str):
@@ -741,6 +754,7 @@ class KokoroONNXBackend(KokoroTTSBackend):
         self.output_samplerate = output_samplerate or KOKORO_SAMPLE_RATE
         self.intra_op_threads = intra_op_threads
         self.kokoro = _KokoroONNXImpl.from_session(session, str(voices_path))
+        self.MIN_FIRST_FLUSH = _configured_min_first_flush(type(self).MIN_FIRST_FLUSH)
 
     def _synth_audio(self, text: str):
         # kokoro.create returns (audio_array, sample_rate). Returns a single
