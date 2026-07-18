@@ -678,29 +678,3 @@ class VoiceInterface:
             text = self.stt_backend.transcribe_file(audio_file)
         logger.info("Transcribed: %s", text)
         return text
-
-    def warm_stt(self) -> None:
-        """Warm the STT backend's cold first-inference by decoding ~0.5s of
-        silence at boot. Backend-agnostic (goes through transcribe_file), so
-        it works for openai-whisper, faster-whisper, and Hailo backends.
-        Fire-and-forget: never raises."""
-        path = None
-        try:
-            silence = np.zeros(int(self.RATE * 0.5), dtype=np.int16)
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                path = tmp.name
-            with wave.open(path, "wb") as wf:
-                wf.setnchannels(self.CHANNELS)
-                wf.setsampwidth(2)  # int16
-                wf.setframerate(self.RATE)
-                wf.writeframes(silence.tobytes())
-            self.stt_backend.transcribe_file(path)
-            logger.info("STT warm-up complete")
-        except Exception:
-            logger.warning("warm_stt failed", exc_info=True)
-        finally:
-            if path is not None:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
