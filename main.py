@@ -19,6 +19,10 @@ import signal
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Load .env BEFORE importing core modules — core.profiling reads
+# KAIZEN_PROFILE at import time, so the flag must be in the environment first.
+load_dotenv()
+
 # Early dispatch for `kaizen skill <subcommand>`. Handled before loading
 # the orchestrator stack so the CLI stays responsive and doesn't require
 # Anthropic credentials / audio / etc.
@@ -31,8 +35,6 @@ from core.scheduler import SchedulesStore, SchedulerThread
 from core.location_preference import resolve_location
 from core.session_archive import SessionArchive
 from core.voice_backends import build_stt_backend, build_wake_backend, build_vad_backend
-
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(
