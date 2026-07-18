@@ -255,6 +255,11 @@ class Orchestrator:
         """
         try:
             stable, _dynamic = self._build_system_prompt_split(user_message=None)
+            # Must match the tool list the real Sonnet turn sends, or the cache
+            # misses. self.tool_loop has no skill_selector, so its
+            # _build_tool_definitions() returns exactly this full list; if a
+            # selector is ever attached to the Sonnet loop, mirror its filtering
+            # here or this warm-up silently stops hitting cache.
             tools = self.skill_loader.get_tool_definitions()
             self.client.messages.create(
                 model=self.model,
