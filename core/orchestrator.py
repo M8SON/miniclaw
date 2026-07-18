@@ -244,6 +244,34 @@ class Orchestrator:
             stable += f"\n--- Current Context ---\n{self._startup_context}\n"
         return stable, dynamic
 
+    def warm_prompt_cache(self) -> None:
+        """Pre-write the Sonnet prompt cache so the first turn after wake
+        reads it instead of paying the cold cache_write.
+
+        Fire-and-forget: sends one max_tokens=1 request carrying the same
+        stable system prefix and full tool list a real Sonnet turn sends,
+        with a cache breakpoint on the stable block. Never mutates
+        conversation state, never runs tools, never raises.
+        """
+        try:
+            stable, _dynamic = self._build_system_prompt_split(user_message=None)
+            tools = self.skill_loader.get_tool_definitions()
+            self.client.messages.create(
+                model=self.model,
+                max_tokens=1,
+                system=[
+                    {
+                        "type": "text",
+                        "text": stable,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                tools=tools if tools else anthropic.NOT_GIVEN,
+                messages=[{"role": "user", "content": "."}],
+            )
+        except Exception:
+            logger.warning("warm_prompt_cache failed", exc_info=True)
+
     def drain_pending_announcements(self) -> list[str]:
         """Return queued next_wake announcements in FIFO order, clearing them."""
         drained = list(self.pending_next_wake_announcements)
