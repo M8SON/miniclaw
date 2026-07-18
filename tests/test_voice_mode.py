@@ -57,6 +57,9 @@ class FakeOrchestrator:
     def greet(self):
         return "Good morning."
 
+    def warm_prompt_cache(self):
+        pass
+
 
 class FakeVoice:
     def __init__(self, wake_results, listen_results):
@@ -70,6 +73,9 @@ class FakeVoice:
 
     def shutdown(self):
         self.shutdown_calls += 1
+
+    def warm_stt(self):
+        pass
 
     def speak_stream_feeder(self, on_first_chunk=None, interruptible=False):
         chunks = []

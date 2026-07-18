@@ -16,8 +16,13 @@ import sys
 import argparse
 import logging
 import signal
+import threading
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Load .env BEFORE importing core modules — core.profiling reads
+# KAIZEN_PROFILE at import time, so the flag must be in the environment first.
+load_dotenv()
 
 # Early dispatch for `kaizen skill <subcommand>`. Handled before loading
 # the orchestrator stack so the CLI stays responsive and doesn't require
@@ -31,8 +36,6 @@ from core.scheduler import SchedulesStore, SchedulerThread
 from core.location_preference import resolve_location
 from core.session_archive import SessionArchive
 from core.voice_backends import build_stt_backend, build_wake_backend, build_vad_backend
-
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -236,6 +239,18 @@ def _display_wake_word() -> str:
     return os.getenv("WAKE_WORD_MODEL", "hey_jarvis").replace("_", " ")
 
 
+def _spawn_warmup(fn):
+    """Run a warm-up callable in a daemon thread when VOICE_WARMUP is on.
+
+    Returns the started Thread, or None when disabled. Warm-ups are
+    fire-and-forget; the caller never joins them in production."""
+    if os.getenv("VOICE_WARMUP", "true").strip().lower() != "true":
+        return None
+    t = threading.Thread(target=fn, daemon=True, name=f"warmup-{getattr(fn, '__name__', 'fn')}")
+    t.start()
+    return t
+
+
 def run_voice_mode(orchestrator, voice=None):
     """Run the assistant in voice mode with microphone input."""
     voice = voice or build_voice_interface()
@@ -250,6 +265,10 @@ def run_voice_mode(orchestrator, voice=None):
 
     orchestrator.inject_startup_context(_build_startup_context())
     voice.play_startup_sound()
+
+    # Warm Whisper's cold first-inference during the greeting so the
+    # first real transcription isn't cold. Overlaps greeting LLM+TTS.
+    _spawn_warmup(voice.warm_stt)
 
     print("\n" + "=" * 60)
     print("  Kaizen")
@@ -309,6 +328,10 @@ def run_voice_mode(orchestrator, voice=None):
             detected = voice.wait_for_wake_word()
             if not detected:
                 break  # Ctrl+C
+
+            # Warm the Sonnet prompt cache while the user speaks their first
+            # request, so the first turn reads cache instead of writing it.
+            _spawn_warmup(orchestrator.warm_prompt_cache)
 
             print("Listening...")
             active_flag[0] = True
