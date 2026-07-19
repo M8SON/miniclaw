@@ -586,6 +586,11 @@ class KokoroTTSBackend:
                             sentinel_seen = True
                             break
                         if _interrupted():
+                            # Writer will not touch the stream after a priming
+                            # interrupt, so signal teardown-complete immediately
+                            # instead of leaving the caller to hit its full wait
+                            # timeout.
+                            writer_done_writing.set()
                             break
                         primed.append(audio)
                         primed_samples += len(audio) if audio is not None else 0
