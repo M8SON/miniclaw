@@ -56,6 +56,47 @@ Update this file when durable project context changes. Do not create overlapping
 
 ## Recent Durable Milestones
 
+- 2026-07-18/19: first-answer voice-latency arc (all merged to `main`; specs/plans
+  under `docs/superpowers/`). Root cause of felt latency: Kokoro synth runs
+  ~1.15–1.4× **slower than real-time** on the Pi CPU (`kokoro-onnx` fp32 is the CPU
+  floor — int8 is ~2× slower on ARM), so playback outruns synthesis and
+  multi-sentence answers gap ~1s between later sentences. Shipped:
+  - **VAD** `VAD_MIN_SILENCE_MS` 1200→700 (~0.5s/turn; the one unambiguous win).
+  - **Profiling fix**: `main.py` now calls `load_dotenv()` before
+    `from core import profiling`, so `KAIZEN_PROFILE` in `.env` actually enables
+    profiling (was inert — profiling read the flag at import, before dotenv).
+  - **Warm-ups BUILT then REVERTED**: a wake-triggered Sonnet prompt-cache warm-up
+    + boot Whisper warm-up gave **no** on-device latency benefit (A/B: a *cold* LLM
+    leg measured 1700ms vs a *warm* one 4087ms — API/generation+network variance
+    dwarfs any 2549-tok prefill saving; the cold cache is a telemetry artifact, not
+    ~3s of wall-clock). Boot STT warm also slowed the greeting. Lesson: measure the
+    real wall-clock lever, not the telemetry number.
+  - **Concise-by-default answers**: system prompt now asks for 1–2 sentence spoken
+    answers unless Mason asks to explain/elaborate/go deeper. Big win — most answers
+    are one flush = inherently gapless, and faster overall.
+  - **Kokoro pre-buffer + tunable first-flush**: `KOKORO_PREBUFFER_MS` (jitter buffer
+    before first write) and `KOKORO_MIN_FIRST_FLUSH`. On-device tuning showed the
+    pre-buffer is counterproductive for the now-common single-sentence case, so the
+    **Pi is tuned to `KOKORO_PREBUFFER_MS=0`, `KOKORO_MIN_FIRST_FLUSH=20`** →
+    first-audio ~2.0s (was ~3.8s). Pre-buffer stays available (env) for long answers.
+  - **Looping R2-D2 cue**: replaced the fixed-length cue (removed `KOKORO_CUE_MS`)
+    with a short "questioning bloops" segment (`_prebuffer_cue_segment`, candidate 3)
+    looped from response-start until first audio via a new `on_first_audio` hook in
+    `KokoroTTSBackend.speak_stream`; started on first delta, stopped on first audio +
+    a `main.py` `finally`. The cue loop thread owns its own `sd.OutputStream`
+    (race-free). Continuous "working on it" feedback, no dead air before speech.
+  - **Ruled out**: Piper (Mason: voice quality much worse than Kokoro); ElevenLabs
+    (deprioritized — Mason wants TTS/STT local); **Hailo Kokoro NPU offload NOT
+    VIABLE** — Kokoro's iSTFT vocoder is exported with data-dependent ops
+    (`NonZero`/`ScatterND`) that the static-shape Hailo-8L can't compile, and its
+    LSTMs compile only via costly unrolling; a partial offload would leave the
+    vocoder bottleneck on CPU. Kokoro-on-CPU is the floor; smoothness is mitigated,
+    not erased. (Hailo-8L currently runs Whisper STT only.)
+  - **Current Pi `.env` TTS block**: `TTS_BACKEND=kokoro-onnx`,
+    `KOKORO_ONNX_VARIANT=fp32`, `WHISPER_MODEL=base`, `VAD_MIN_SILENCE_MS=700`,
+    `KAIZEN_PROFILE=true`, `KOKORO_PREBUFFER_MS=0`, `KOKORO_MIN_FIRST_FLUSH=20`
+    (`KOKORO_CUE_MS` removed). Pi runs `main` on the `archimedes@192.168.1.136`
+    host (`ssh pi`), user systemd unit `kaizen.service`.
 - 2026-06-18: voice "heard you / processing" cue — wired the previously-unused
   `on_speech_done` hook in the voice loop to `play_thinking_sound` so the R2-D2
   warble fires the instant speech endpoints, overlapping the silent
