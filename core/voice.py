@@ -427,7 +427,7 @@ class VoiceInterface:
             logger.warning("Response-ready sound error: %s", e)
 
     def play_prebuffer_cue(self):
-        """Longer R2-D2 'here it comes' warble (~1.3s) that covers the Kokoro
+        """Longer R2-D2 'here it comes' warble (~1.1s) that covers the Kokoro
         pre-buffer window so there's no dead air before speech starts. Plays
         non-blocking; errors are logged and swallowed so a missing speaker
         can't crash the voice loop."""
