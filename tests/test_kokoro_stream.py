@@ -248,6 +248,24 @@ class SpeakStreamTests(unittest.TestCase):
             f"abandoned-synth flush should not log NO AUDIO, got: {msgs}",
         )
 
+    @patch("core.voice_backends.sd")
+    def test_on_first_audio_fires_once(self, mock_sd):
+        import numpy as np
+        backend = self._make_backend()
+        backend.pipeline.side_effect = lambda *a, **k: iter(
+            [("", "", np.zeros(2048, dtype=np.float32))]
+        )
+        calls = []
+        backend.speak_stream(iter(["One.", " Two."]), on_first_audio=lambda: calls.append(1))
+        self.assertEqual(len(calls), 1)
+
+    @patch("core.voice_backends.sd")
+    def test_on_first_audio_not_fired_without_audio(self, mock_sd):
+        backend = self._make_backend()  # pipeline yields empty → no audio
+        calls = []
+        backend.speak_stream(iter(["Hello."]), on_first_audio=lambda: calls.append(1))
+        self.assertEqual(calls, [])
+
 
 class SpeakInterruptTests(unittest.TestCase):
     def _make_backend(self):
