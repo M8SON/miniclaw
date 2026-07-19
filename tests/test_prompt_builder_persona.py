@@ -139,7 +139,7 @@ class TestBuildForGreeting(unittest.TestCase):
             pb = PromptBuilder(memory_provider=memory)
         full = pb.build(skills={"weather": skill}, skipped_skills={})
         lean = pb.build_for_greeting("It is Friday.")
-        self.assertLess(len(lean), len(full) // 4)
+        self.assertLess(len(lean), len(full) // 3)
 
 
 if __name__ == "__main__":

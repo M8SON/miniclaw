@@ -343,12 +343,12 @@ def run_voice_mode(orchestrator, voice=None):
                         return
 
                     if os.getenv("LLM_STREAM_TO_TTS", "true").lower() == "true":
-                        # Fire the R2-D2 'response ready' cue when the first
-                        # delta arrives; it plays in parallel with Kokoro
-                        # synth so it covers the synth latency without
-                        # adding any.
+                        # Fire the R2-D2 pre-buffer cue when the first delta
+                        # arrives; it plays in parallel while Kokoro primes its
+                        # pre-buffer, covering that start-delay without adding
+                        # any dead air.
                         push_raw, finalize = voice.speak_stream_feeder(
-                            on_first_chunk=voice.play_response_ready_sound,
+                            on_first_chunk=voice.play_prebuffer_cue,
                             interruptible=True,
                         )
                         try:

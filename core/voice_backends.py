@@ -383,16 +383,17 @@ except ImportError:
     _KOKORO_ONNX_AVAILABLE = False
 
 
-def _configured_min_first_flush(default: int) -> int:
-    """First-flush threshold (chars) for TTS, from KOKORO_MIN_FIRST_FLUSH.
-
-    Read at backend construction (after load_dotenv), not import. Floor-guarded
-    so a bad/zero/negative value can't disable first-flush; non-numeric falls
-    back to `default`."""
+def _configured_int(env_var: str, default: int, minimum: int) -> int:
+    """Read an int env var at backend construction (after load_dotenv), not
+    import. Floor-guarded to `minimum`; non-numeric falls back to `default`."""
     try:
-        return max(1, int(os.getenv("KOKORO_MIN_FIRST_FLUSH", str(default))))
+        return max(minimum, int(os.getenv(env_var, str(default))))
     except (TypeError, ValueError):
         return default
+
+
+def _configured_min_first_flush(default: int) -> int:
+    return _configured_int("KOKORO_MIN_FIRST_FLUSH", default, 1)
 
 
 class KokoroTTSBackend:
@@ -414,6 +415,7 @@ class KokoroTTSBackend:
         self.output_samplerate = output_samplerate or KOKORO_SAMPLE_RATE
         self.pipeline = KPipeline(lang_code="a")
         self.MIN_FIRST_FLUSH = _configured_min_first_flush(type(self).MIN_FIRST_FLUSH)
+        self.PREBUFFER_MS = _configured_int("KOKORO_PREBUFFER_MS", type(self).PREBUFFER_MS, 0)
 
     SENTENCE_TERMINATORS = (".", "?", "!", "\n")
     BUFFER_CAP = 200
@@ -422,7 +424,8 @@ class KokoroTTSBackend:
     # MIN_FIRST_FLUSH chars — long enough not to sound choppy. Later sentences
     # already overlap prior playback, so they keep sentence-level flushing.
     CLAUSE_BOUNDARIES = (",", ";", ":", "—")
-    MIN_FIRST_FLUSH = 20
+    MIN_FIRST_FLUSH = 30
+    PREBUFFER_MS = 1500
     WRITE_SUB_BLOCK = 1024  # frames per stream.write, so a barge-in cut lands within ~tens of ms
 
     def _synth_audio(self, text: str):
@@ -554,26 +557,63 @@ class KokoroTTSBackend:
 
             def writer_worker():
                 """Drain audio_q to the device in sub-blocks. Blocks on
-                stream.write so playback is naturally paced. On interrupt, stop
-                writing (checked between sub-blocks) but keep draining so synth
-                never blocks on the bounded audio_q.put. Sets
-                writer_done_writing once it has stopped touching the stream, so
-                the caller can close the OutputStream without racing a write."""
+                stream.write so playback is naturally paced. Primes a small
+                jitter buffer (PREBUFFER_MS of audio) before the first write so
+                playback doesn't immediately outrun Kokoro's slower-than-realtime
+                synth. On interrupt, stop writing (checked between sub-blocks) but
+                keep draining so synth never blocks on the bounded audio_q.put."""
                 try:
+                    def _write(audio):
+                        if first_audio_at[0] is None:
+                            first_audio_at[0] = time.perf_counter()
+                        resampled = resample(
+                            audio, KOKORO_SAMPLE_RATE, self.output_samplerate
+                        )
+                        for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
+                            if _interrupted():
+                                break
+                            stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
+
+                    # Prime the jitter buffer: accumulate audio until we have
+                    # PREBUFFER_MS worth, or the stream ends, or a barge-in.
+                    target_samples = int(KOKORO_SAMPLE_RATE * self.PREBUFFER_MS / 1000)
+                    primed = []
+                    primed_samples = 0
+                    sentinel_seen = False
+                    while primed_samples < target_samples:
+                        audio = audio_q.get()
+                        if audio is SENTINEL:
+                            sentinel_seen = True
+                            break
+                        if _interrupted():
+                            # Writer will not touch the stream after a priming
+                            # interrupt, so signal teardown-complete immediately
+                            # instead of leaving the caller to hit its full wait
+                            # timeout.
+                            writer_done_writing.set()
+                            break
+                        primed.append(audio)
+                        primed_samples += len(audio) if audio is not None else 0
+
+                    for audio in primed:
+                        if _interrupted():
+                            writer_done_writing.set()
+                            break
+                        _write(audio)
+
+                    if sentinel_seen:
+                        return
+
                     while True:
                         audio = audio_q.get()
                         if audio is SENTINEL:
                             return
                         if _interrupted():
-                            continue  # discard; keep the queue moving so synth never blocks
-                        if first_audio_at[0] is None:
-                            first_audio_at[0] = time.perf_counter()
-                        resampled = resample(audio, KOKORO_SAMPLE_RATE, self.output_samplerate)
-                        for i in range(0, len(resampled), self.WRITE_SUB_BLOCK):
-                            if _interrupted():
-                                break
-                            stream.write(resampled[i : i + self.WRITE_SUB_BLOCK])
+                            continue  # discard; keep the queue moving
+                        _write(audio)
                         if _interrupted():
+                            # barge-in landed mid-chunk — signal early so the
+                            # caller doesn't wait the full teardown timeout.
                             writer_done_writing.set()
                 finally:
                     writer_done_writing.set()
@@ -755,6 +795,7 @@ class KokoroONNXBackend(KokoroTTSBackend):
         self.intra_op_threads = intra_op_threads
         self.kokoro = _KokoroONNXImpl.from_session(session, str(voices_path))
         self.MIN_FIRST_FLUSH = _configured_min_first_flush(type(self).MIN_FIRST_FLUSH)
+        self.PREBUFFER_MS = _configured_int("KOKORO_PREBUFFER_MS", type(self).PREBUFFER_MS, 0)
 
     def _synth_audio(self, text: str):
         # kokoro.create returns (audio_array, sample_rate). Returns a single
