@@ -457,7 +457,7 @@ class KokoroTTSBackend:
                     boundary = idx
         return boundary
 
-    def speak_stream(self, chunks, interrupt_event=None) -> None:
+    def speak_stream(self, chunks, interrupt_event=None, on_first_audio=None) -> None:
         """Consume LLM text deltas, run Kokoro per sentence, write audio.
 
         Three-stage pipeline that overlaps synthesis with playback:
@@ -479,6 +479,9 @@ class KokoroTTSBackend:
         Sentence boundaries are detected by SENTENCE_TERMINATORS plus a
         defensive BUFFER_CAP so no flush stalls forever on a comma-heavy
         delta stream.
+
+        If on_first_audio is provided, it will be called exactly once when
+        the first real audio is written to the device.
         """
         import queue
         import threading
@@ -566,6 +569,11 @@ class KokoroTTSBackend:
                     def _write(audio):
                         if first_audio_at[0] is None:
                             first_audio_at[0] = time.perf_counter()
+                            if on_first_audio is not None:
+                                try:
+                                    on_first_audio()
+                                except Exception:
+                                    logger.exception("on_first_audio hook raised")
                         resampled = resample(
                             audio, KOKORO_SAMPLE_RATE, self.output_samplerate
                         )

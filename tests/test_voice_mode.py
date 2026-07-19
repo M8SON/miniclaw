@@ -66,13 +66,14 @@ class FakeVoice:
         self.startup_sounds = 0
         self.thinking_sounds = 0
         self.response_ready_sounds = 0
-        self.prebuffer_cues = 0
+        self.prebuffer_cue_starts = 0
+        self.prebuffer_cue_stops = 0
         self.shutdown_calls = 0
 
     def shutdown(self):
         self.shutdown_calls += 1
 
-    def speak_stream_feeder(self, on_first_chunk=None, interruptible=False):
+    def speak_stream_feeder(self, on_first_chunk=None, on_first_audio=None, interruptible=False):
         chunks = []
         first_seen = [False]
 
@@ -119,8 +120,11 @@ class FakeVoice:
     def play_response_ready_sound(self):
         self.response_ready_sounds += 1
 
-    def play_prebuffer_cue(self):
-        self.prebuffer_cues += 1
+    def start_prebuffer_cue(self):
+        self.prebuffer_cue_starts += 1
+
+    def stop_prebuffer_cue(self):
+        self.prebuffer_cue_stops += 1
 
     def play_ack_sound(self):
         pass
@@ -148,8 +152,11 @@ class VoiceModeTests(unittest.TestCase):
         self.assertEqual(voice.startup_sounds, 1)
         # Pre-buffer cue fires when the first delta arrives — once per
         # streaming turn. Goodbye uses speak() (not streaming), so only the
-        # first turn triggers it.
-        self.assertEqual(voice.prebuffer_cues, 1)
+        # first turn triggers it. The cue is always stopped afterward (via
+        # the streaming branch's finally), even though FakeVoice's feeder
+        # never invokes on_first_audio itself.
+        self.assertEqual(voice.prebuffer_cue_starts, 1)
+        self.assertEqual(voice.prebuffer_cue_stops, 1)
         self.assertIsNotNone(orchestrator.container_manager._meta_skill_executor)
 
     def test_voice_mode_plays_thinking_cue_when_speech_endpoints(self):

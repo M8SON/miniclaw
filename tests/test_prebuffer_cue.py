@@ -1,7 +1,8 @@
-"""Tests for VoiceInterface.play_prebuffer_cue — the longer cue that covers
-the TTS pre-buffer window."""
+"""Tests for the looping R2-D2 pre-buffer cue."""
 
 import sys
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,54 +20,51 @@ def _make_voice():
     v.enable_tts = True
     v._output_samplerate = KOKORO_SAMPLE_RATE
     v._output_device_index = None
+    v._prebuffer_cue = None
+    v._prebuffer_cue_lock = threading.Lock()
     return v
 
 
-def test_cue_is_long_and_nonblocking():
+def test_segment_is_nonempty_float32():
     v = _make_voice()
-    with patch.object(voice_mod, "sd") as mock_sd:
-        v.play_prebuffer_cue()
-        mock_sd.play.assert_called_once()
-        mock_sd.wait.assert_not_called()  # non-blocking
-        arr = mock_sd.play.call_args.args[0]
-        # Cue must fill roughly the pre-buffer window — at least ~1s of audio.
-        assert len(arr) >= int(1.0 * KOKORO_SAMPLE_RATE)
+    seg = v._prebuffer_cue_segment()
+    assert isinstance(seg, np.ndarray)
+    assert seg.dtype == np.float32
+    assert len(seg) > int(0.3 * v._output_samplerate)  # ~0.44s segment
 
 
-def test_cue_noop_when_tts_disabled():
+def test_start_then_stop_lifecycle():
+    v = _make_voice()
+    with patch.object(voice_mod, "sd"):
+        v.start_prebuffer_cue()
+        assert v._prebuffer_cue is not None
+        _, thread = v._prebuffer_cue
+        v.stop_prebuffer_cue()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        assert v._prebuffer_cue is None
+
+
+def test_stop_without_start_is_noop():
+    v = _make_voice()
+    with patch.object(voice_mod, "sd"):
+        v.stop_prebuffer_cue()  # must not raise
+        assert v._prebuffer_cue is None
+
+
+def test_double_start_does_not_spawn_two():
+    v = _make_voice()
+    with patch.object(voice_mod, "sd"):
+        v.start_prebuffer_cue()
+        first = v._prebuffer_cue
+        v.start_prebuffer_cue()  # idempotent
+        assert v._prebuffer_cue is first
+        v.stop_prebuffer_cue()
+
+
+def test_noop_when_tts_disabled():
     v = _make_voice()
     v.enable_tts = False
-    with patch.object(voice_mod, "sd") as mock_sd:
-        v.play_prebuffer_cue()
-        mock_sd.play.assert_not_called()
-
-
-def test_cue_swallows_errors():
-    v = _make_voice()
-    with patch.object(voice_mod, "sd") as mock_sd:
-        mock_sd.play.side_effect = RuntimeError("no speaker")
-        v.play_prebuffer_cue()  # must not raise
-
-
-def test_cue_length_env_tunable(monkeypatch):
-    """KOKORO_CUE_MS must scale the produced cue length in the expected
-    direction: a larger value yields more samples than default, a smaller
-    (but still floor-guarded) value yields fewer."""
-    v = _make_voice()
-
-    monkeypatch.delenv("KOKORO_CUE_MS", raising=False)
-    with patch.object(voice_mod, "sd") as mock_sd:
-        v.play_prebuffer_cue()
-        default_len = len(mock_sd.play.call_args.args[0])
-
-    monkeypatch.setenv("KOKORO_CUE_MS", "2200")
-    with patch.object(voice_mod, "sd") as mock_sd:
-        v.play_prebuffer_cue()
-        longer_len = len(mock_sd.play.call_args.args[0])
-
-    monkeypatch.setenv("KOKORO_CUE_MS", "550")
-    with patch.object(voice_mod, "sd") as mock_sd:
-        v.play_prebuffer_cue()
-        shorter_len = len(mock_sd.play.call_args.args[0])
-
-    assert longer_len > default_len > shorter_len
+    with patch.object(voice_mod, "sd"):
+        v.start_prebuffer_cue()
+        assert v._prebuffer_cue is None

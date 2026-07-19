@@ -348,7 +348,8 @@ def run_voice_mode(orchestrator, voice=None):
                         # pre-buffer, covering that start-delay without adding
                         # any dead air.
                         push_raw, finalize = voice.speak_stream_feeder(
-                            on_first_chunk=voice.play_prebuffer_cue,
+                            on_first_chunk=voice.start_prebuffer_cue,
+                            on_first_audio=voice.stop_prebuffer_cue,
                             interruptible=True,
                         )
                         try:
@@ -369,6 +370,8 @@ def run_voice_mode(orchestrator, voice=None):
                         except Exception:
                             finalize()
                             raise
+                        finally:
+                            voice.stop_prebuffer_cue()
                     else:
                         response = orchestrator.process_message(
                             transcription,
