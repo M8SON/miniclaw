@@ -85,6 +85,9 @@ class VoiceInterface:
         self.barge_in_enabled = barge_in_enabled
         self._barge_in = None
 
+        # Looping pre-buffer cue: (stream, stop_event, thread) or None.
+        self._prebuffer_cue = None
+
         self.stt_backend = stt_backend or WhisperBackend(
             transcription_model=transcription_model,
         )
@@ -426,43 +429,73 @@ class VoiceInterface:
         except Exception as e:
             logger.warning("Response-ready sound error: %s", e)
 
-    def play_prebuffer_cue(self):
-        """Longer R2-D2 'here it comes' warble (~1.1s by default) that covers
-        the Kokoro pre-buffer window so there's no dead air before speech
-        starts. Length is tunable via KOKORO_CUE_MS (default 1100), floor-
-        guarded to 200ms; read at call time (not import) since the cue fires
-        infrequently so a per-call os.getenv has no meaningful cost and this
-        avoids any import-order concern with .env loading. Plays
-        non-blocking; errors are logged and swallowed so a missing speaker
-        can't crash the voice loop."""
-        if not self.enable_tts:
+    def _prebuffer_cue_segment(self) -> "np.ndarray":
+        """One R2-D2 'questioning bloops' segment (~0.44s), looped by the cue."""
+        gs = np.zeros(int(KOKORO_SAMPLE_RATE * 0.03), dtype=np.float32)
+        gs2 = np.zeros(int(KOKORO_SAMPLE_RATE * 0.02), dtype=np.float32)
+        sound = np.concatenate([
+            self._r2_beep(800, 0.06),
+            gs,
+            self._r2_beep(1200, 0.06),
+            gs,
+            self._r2_chirp(1000, 2300, 0.18, vibrato_hz=10, vibrato_depth=60),
+            gs2,
+            self._r2_beep(1700, 0.05),
+        ])
+        return resample(sound, KOKORO_SAMPLE_RATE, self._output_samplerate)
+
+    def start_prebuffer_cue(self) -> None:
+        """Start looping the R2-D2 cue on its own output stream until
+        stop_prebuffer_cue() is called. Idempotent; errors swallowed."""
+        if not self.enable_tts or self._prebuffer_cue is not None:
             return
         try:
-            try:
-                target_ms = int(os.getenv("KOKORO_CUE_MS", "1100"))
-            except (TypeError, ValueError):
-                target_ms = 1100
-            target_ms = max(200, target_ms)
-            scale = target_ms / 1100.0
-            gs = np.zeros(int(KOKORO_SAMPLE_RATE * 0.03 * scale), dtype=np.float32)
-            sound = np.concatenate([
-                self._r2_chirp(700, 1500, 0.30 * scale, vibrato_hz=9, vibrato_depth=60),
-                gs,
-                self._r2_chirp(1500, 1000, 0.28 * scale, vibrato_hz=11, vibrato_depth=55),
-                gs,
-                self._r2_chirp(1000, 1800, 0.30 * scale, vibrato_hz=10, vibrato_depth=65),
-                gs,
-                self._r2_beep(2000, 0.06 * scale, volume=0.4),
-                self._r2_tail(0.06),
-            ])
-            sd.play(
-                resample(sound, KOKORO_SAMPLE_RATE, self._output_samplerate),
+            seg = self._prebuffer_cue_segment()
+            stream = sd.OutputStream(
                 samplerate=self._output_samplerate,
+                channels=1,
+                dtype="float32",
                 device=self._output_device_index,
             )
-            # Intentionally no sd.wait — non-blocking; Kokoro primes in parallel.
+            stream.start()
+            stop_event = threading.Event()
+
+            def _loop():
+                SUB = 1024
+                try:
+                    while not stop_event.is_set():
+                        for i in range(0, len(seg), SUB):
+                            block = seg[i : i + SUB]
+                            if stop_event.is_set():
+                                # Fade the in-flight block so the cut is clickless.
+                                block = block * np.linspace(1, 0, len(block), dtype=np.float32)
+                                stream.write(block)
+                                return
+                            stream.write(block)
+                except Exception:
+                    logger.exception("Pre-buffer cue loop error")
+
+            thread = threading.Thread(target=_loop, daemon=True, name="prebuffer-cue")
+            thread.start()
+            self._prebuffer_cue = (stream, stop_event, thread)
         except Exception as e:
-            logger.warning("Pre-buffer cue error: %s", e)
+            logger.warning("Pre-buffer cue start error: %s", e)
+            self._prebuffer_cue = None
+
+    def stop_prebuffer_cue(self) -> None:
+        """Stop the looping cue and tear down its stream. Idempotent."""
+        handle = self._prebuffer_cue
+        if handle is None:
+            return
+        self._prebuffer_cue = None
+        stream, stop_event, thread = handle
+        stop_event.set()
+        thread.join(timeout=2.0)
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:
+            pass
 
     def play_ack_sound(self):
         """Short R2-D2-style acknowledgement chime — replaces verbal
