@@ -66,6 +66,7 @@ class FakeVoice:
         self.startup_sounds = 0
         self.thinking_sounds = 0
         self.response_ready_sounds = 0
+        self.prebuffer_cues = 0
         self.shutdown_calls = 0
 
     def shutdown(self):
@@ -118,6 +119,9 @@ class FakeVoice:
     def play_response_ready_sound(self):
         self.response_ready_sounds += 1
 
+    def play_prebuffer_cue(self):
+        self.prebuffer_cues += 1
+
     def play_ack_sound(self):
         pass
 
@@ -142,10 +146,10 @@ class VoiceModeTests(unittest.TestCase):
         self.assertEqual(orchestrator.processed, ["tell me something"])
         self.assertEqual(voice.spoken, ["Good morning.", "Hello from Kaizen", "Goodbye!"])
         self.assertEqual(voice.startup_sounds, 1)
-        # Response-ready cue fires when the first delta arrives — once per
+        # Pre-buffer cue fires when the first delta arrives — once per
         # streaming turn. Goodbye uses speak() (not streaming), so only the
         # first turn triggers it.
-        self.assertEqual(voice.response_ready_sounds, 1)
+        self.assertEqual(voice.prebuffer_cues, 1)
         self.assertIsNotNone(orchestrator.container_manager._meta_skill_executor)
 
     def test_voice_mode_plays_thinking_cue_when_speech_endpoints(self):

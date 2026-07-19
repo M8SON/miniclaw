@@ -426,6 +426,34 @@ class VoiceInterface:
         except Exception as e:
             logger.warning("Response-ready sound error: %s", e)
 
+    def play_prebuffer_cue(self):
+        """Longer R2-D2 'here it comes' warble (~1.3s) that covers the Kokoro
+        pre-buffer window so there's no dead air before speech starts. Plays
+        non-blocking; errors are logged and swallowed so a missing speaker
+        can't crash the voice loop."""
+        if not self.enable_tts:
+            return
+        try:
+            gs = np.zeros(int(KOKORO_SAMPLE_RATE * 0.03), dtype=np.float32)
+            sound = np.concatenate([
+                self._r2_chirp(700, 1500, 0.30, vibrato_hz=9, vibrato_depth=60),
+                gs,
+                self._r2_chirp(1500, 1000, 0.28, vibrato_hz=11, vibrato_depth=55),
+                gs,
+                self._r2_chirp(1000, 1800, 0.30, vibrato_hz=10, vibrato_depth=65),
+                gs,
+                self._r2_beep(2000, 0.06, volume=0.4),
+                self._r2_tail(0.06),
+            ])
+            sd.play(
+                resample(sound, KOKORO_SAMPLE_RATE, self._output_samplerate),
+                samplerate=self._output_samplerate,
+                device=self._output_device_index,
+            )
+            # Intentionally no sd.wait — non-blocking; Kokoro primes in parallel.
+        except Exception as e:
+            logger.warning("Pre-buffer cue error: %s", e)
+
     def play_ack_sound(self):
         """Short R2-D2-style acknowledgement chime — replaces verbal
         confirmations for music-control transport commands ("Paused.",

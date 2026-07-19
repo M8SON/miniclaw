@@ -348,7 +348,7 @@ def run_voice_mode(orchestrator, voice=None):
                         # synth so it covers the synth latency without
                         # adding any.
                         push_raw, finalize = voice.speak_stream_feeder(
-                            on_first_chunk=voice.play_response_ready_sound,
+                            on_first_chunk=voice.play_prebuffer_cue,
                             interruptible=True,
                         )
                         try:
