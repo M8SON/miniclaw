@@ -46,3 +46,27 @@ def test_cue_swallows_errors():
     with patch.object(voice_mod, "sd") as mock_sd:
         mock_sd.play.side_effect = RuntimeError("no speaker")
         v.play_prebuffer_cue()  # must not raise
+
+
+def test_cue_length_env_tunable(monkeypatch):
+    """KOKORO_CUE_MS must scale the produced cue length in the expected
+    direction: a larger value yields more samples than default, a smaller
+    (but still floor-guarded) value yields fewer."""
+    v = _make_voice()
+
+    monkeypatch.delenv("KOKORO_CUE_MS", raising=False)
+    with patch.object(voice_mod, "sd") as mock_sd:
+        v.play_prebuffer_cue()
+        default_len = len(mock_sd.play.call_args.args[0])
+
+    monkeypatch.setenv("KOKORO_CUE_MS", "2200")
+    with patch.object(voice_mod, "sd") as mock_sd:
+        v.play_prebuffer_cue()
+        longer_len = len(mock_sd.play.call_args.args[0])
+
+    monkeypatch.setenv("KOKORO_CUE_MS", "550")
+    with patch.object(voice_mod, "sd") as mock_sd:
+        v.play_prebuffer_cue()
+        shorter_len = len(mock_sd.play.call_args.args[0])
+
+    assert longer_len > default_len > shorter_len

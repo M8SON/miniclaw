@@ -427,22 +427,32 @@ class VoiceInterface:
             logger.warning("Response-ready sound error: %s", e)
 
     def play_prebuffer_cue(self):
-        """Longer R2-D2 'here it comes' warble (~1.1s) that covers the Kokoro
-        pre-buffer window so there's no dead air before speech starts. Plays
+        """Longer R2-D2 'here it comes' warble (~1.1s by default) that covers
+        the Kokoro pre-buffer window so there's no dead air before speech
+        starts. Length is tunable via KOKORO_CUE_MS (default 1100), floor-
+        guarded to 200ms; read at call time (not import) since the cue fires
+        infrequently so a per-call os.getenv has no meaningful cost and this
+        avoids any import-order concern with .env loading. Plays
         non-blocking; errors are logged and swallowed so a missing speaker
         can't crash the voice loop."""
         if not self.enable_tts:
             return
         try:
-            gs = np.zeros(int(KOKORO_SAMPLE_RATE * 0.03), dtype=np.float32)
+            try:
+                target_ms = int(os.getenv("KOKORO_CUE_MS", "1100"))
+            except (TypeError, ValueError):
+                target_ms = 1100
+            target_ms = max(200, target_ms)
+            scale = target_ms / 1100.0
+            gs = np.zeros(int(KOKORO_SAMPLE_RATE * 0.03 * scale), dtype=np.float32)
             sound = np.concatenate([
-                self._r2_chirp(700, 1500, 0.30, vibrato_hz=9, vibrato_depth=60),
+                self._r2_chirp(700, 1500, 0.30 * scale, vibrato_hz=9, vibrato_depth=60),
                 gs,
-                self._r2_chirp(1500, 1000, 0.28, vibrato_hz=11, vibrato_depth=55),
+                self._r2_chirp(1500, 1000, 0.28 * scale, vibrato_hz=11, vibrato_depth=55),
                 gs,
-                self._r2_chirp(1000, 1800, 0.30, vibrato_hz=10, vibrato_depth=65),
+                self._r2_chirp(1000, 1800, 0.30 * scale, vibrato_hz=10, vibrato_depth=65),
                 gs,
-                self._r2_beep(2000, 0.06, volume=0.4),
+                self._r2_beep(2000, 0.06 * scale, volume=0.4),
                 self._r2_tail(0.06),
             ])
             sd.play(

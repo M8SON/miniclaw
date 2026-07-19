@@ -597,6 +597,7 @@ class KokoroTTSBackend:
 
                     for audio in primed:
                         if _interrupted():
+                            writer_done_writing.set()
                             break
                         _write(audio)
 

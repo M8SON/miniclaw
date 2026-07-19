@@ -178,3 +178,71 @@ def test_bargein_during_priming_returns_promptly(mock_sd, monkeypatch):
     elapsed = time.perf_counter() - t0
     stream.write.assert_not_called()  # priming discards on interrupt
     assert elapsed < 0.9, f"teardown blocked the full timeout ({elapsed:.2f}s)"
+
+
+@patch("core.voice_backends.sd")
+def test_bargein_during_primed_flush_returns_promptly(mock_sd, monkeypatch):
+    """Barge-in that fires strictly during the primed-flush loop — after the
+    buffer target has already been reached and priming has accumulated its
+    chunks, while those chunks are being written out to the stream — must
+    not block speak_stream for the full teardown timeout.
+
+    This targets the `for audio in primed:` loop specifically (distinct
+    from the priming-accumulation loop's break, covered by
+    test_bargein_during_priming_returns_promptly, and the tail loop's
+    break). PREBUFFER_MS is set so the target is reached after exactly two
+    2048-sample chunks land in `primed`. A side_effect on the (mocked)
+    stream.write call sets the interrupt the instant the first primed
+    chunk's second sub-block write completes — i.e. strictly between
+    writing primed chunk #1 and attempting primed chunk #2 — pinning the
+    interleaving deterministically instead of racing real threads.
+
+    The third sentence's synth call is made artificially slow (as in the
+    priming-barge-in test above) so that, absent the fix, the writer's
+    subsequent tail-drain loop stays blocked waiting on that chunk and
+    doesn't reach its `finally: writer_done_writing.set()` for well over
+    the 1.0s teardown-wait timeout the caller uses.
+    """
+    monkeypatch.setenv("KOKORO_PREBUFFER_MS", "100")  # target=2400 samples: met after 2 chunks (4096)
+    backend = _make_backend()
+    stream = mock_sd.OutputStream.return_value.__enter__.return_value
+
+    calls = [0]
+
+    def synth(*a, **k):
+        calls[0] += 1
+        if calls[0] == 3:
+            time.sleep(1.5)  # simulate a slow in-flight synth call
+        return iter([("", "", np.zeros(2048, dtype=np.float32))])
+
+    backend.pipeline.side_effect = synth
+
+    ev = threading.Event()
+    write_calls = [0]
+
+    def write_side_effect(*a, **kw):
+        write_calls[0] += 1
+        if write_calls[0] == 2:
+            # Primed chunk #1 (2048 samples / 1024-sample sub-block = 2
+            # writes) has just finished writing. Barge in now, before the
+            # primed-flush loop's next iteration (chunk #2) is attempted.
+            ev.set()
+
+    stream.write.side_effect = write_side_effect
+
+    sentences = [f"Sentence {i}." for i in range(5)]
+    done = threading.Event()
+    t0 = time.perf_counter()
+
+    def run():
+        backend.speak_stream(iter(sentences), interrupt_event=ev)
+        done.set()
+
+    threading.Thread(target=run, daemon=True).start()
+
+    assert done.wait(timeout=5), "speak_stream did not return after primed-flush barge-in"
+    elapsed = time.perf_counter() - t0
+    # Primed chunk #1 was written (2 sub-block writes); chunk #2 must NOT
+    # have been written since the interrupt landed before it was attempted.
+    assert write_calls[0] == 2
+    assert elapsed < 0.9, f"teardown blocked the full timeout ({elapsed:.2f}s)"
