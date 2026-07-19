@@ -66,8 +66,8 @@ def test_init_reads_env(monkeypatch):
     assert b.MIN_FIRST_FLUSH == 15
 
 
-def test_init_default_is_20(monkeypatch):
+def test_init_default_is_30(monkeypatch):
     monkeypatch.delenv("KOKORO_MIN_FIRST_FLUSH", raising=False)
     with patch.object(voice_backends, "KPipeline"):
         b = voice_backends.KokoroTTSBackend()
-    assert b.MIN_FIRST_FLUSH == 20
+    assert b.MIN_FIRST_FLUSH == 30
