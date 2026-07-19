@@ -557,7 +557,7 @@ class VoiceInterface:
                 self._stop_barge_in_watcher()
         return interrupt_event is not None and interrupt_event.is_set()
 
-    def speak_stream_feeder(self, on_first_chunk=None, interruptible=False):
+    def speak_stream_feeder(self, on_first_chunk=None, on_first_audio=None, interruptible=False):
         """Return (push, finalize) for feeding text deltas into a streaming TTS run.
 
         The Kokoro consumer thread is spawned LAZILY on the first non-empty
@@ -567,6 +567,9 @@ class VoiceInterface:
         on_first_chunk: optional zero-arg callable fired exactly once when the
         first non-empty delta arrives. The voice loop uses this to play a
         short R2-D2 'response ready' cue right before Kokoro starts.
+
+        on_first_audio: optional zero-arg callable forwarded to the backend's
+        speak_stream, fired when audio actually starts playing.
 
         interruptible: when True and barge-in is enabled, a wake-word watcher
         runs during playback and finalize() returns whether it fired.
@@ -604,7 +607,9 @@ class VoiceInterface:
 
         def _consume():
             try:
-                backend.speak_stream(_gen(), interrupt_event=interrupt_event)
+                backend.speak_stream(
+                    _gen(), interrupt_event=interrupt_event, on_first_audio=on_first_audio
+                )
             except Exception:
                 logger.exception("speak_stream consumer raised")
 
