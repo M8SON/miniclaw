@@ -85,8 +85,10 @@ class VoiceInterface:
         self.barge_in_enabled = barge_in_enabled
         self._barge_in = None
 
-        # Looping pre-buffer cue: (stream, stop_event, thread) or None.
+        # Looping pre-buffer cue: (stop_event, thread) or None. The thread
+        # owns its own OutputStream's entire lifecycle (open, write, close).
         self._prebuffer_cue = None
+        self._prebuffer_cue_lock = threading.Lock()
 
         self.stt_backend = stt_backend or WhisperBackend(
             transcription_model=transcription_model,
@@ -446,56 +448,63 @@ class VoiceInterface:
 
     def start_prebuffer_cue(self) -> None:
         """Start looping the R2-D2 cue on its own output stream until
-        stop_prebuffer_cue() is called. Idempotent; errors swallowed."""
-        if not self.enable_tts or self._prebuffer_cue is not None:
+        stop_prebuffer_cue() is called. Idempotent; errors swallowed.
+
+        The loop thread opens and closes its own OutputStream so the stream's
+        entire lifecycle lives on one thread — stop_prebuffer_cue() only
+        signals and joins, it never touches the stream itself. This avoids a
+        close()/write() race when stop is triggered from a different thread
+        (e.g. Kokoro's writer thread via on_first_audio) than the one that
+        started the cue."""
+        if not self.enable_tts:
             return
-        try:
-            seg = self._prebuffer_cue_segment()
-            stream = sd.OutputStream(
-                samplerate=self._output_samplerate,
-                channels=1,
-                dtype="float32",
-                device=self._output_device_index,
-            )
-            stream.start()
-            stop_event = threading.Event()
+        with self._prebuffer_cue_lock:
+            if self._prebuffer_cue is not None:
+                return
+            try:
+                seg = self._prebuffer_cue_segment()
+                stop_event = threading.Event()
 
-            def _loop():
-                SUB = 1024
-                try:
-                    while not stop_event.is_set():
-                        for i in range(0, len(seg), SUB):
-                            block = seg[i : i + SUB]
-                            if stop_event.is_set():
-                                # Fade the in-flight block so the cut is clickless.
-                                block = block * np.linspace(1, 0, len(block), dtype=np.float32)
-                                stream.write(block)
-                                return
-                            stream.write(block)
-                except Exception:
-                    logger.exception("Pre-buffer cue loop error")
+                def _loop():
+                    SUB = 1024
+                    try:
+                        with sd.OutputStream(
+                            samplerate=self._output_samplerate,
+                            channels=1,
+                            dtype="float32",
+                            device=self._output_device_index,
+                        ) as stream:
+                            while not stop_event.is_set():
+                                for i in range(0, len(seg), SUB):
+                                    block = seg[i : i + SUB]
+                                    if stop_event.is_set():
+                                        # Fade the in-flight block so the cut is clickless.
+                                        stream.write(block * np.linspace(1, 0, len(block), dtype=np.float32))
+                                        return
+                                    stream.write(block)
+                    except Exception:
+                        logger.exception("Pre-buffer cue loop error")
 
-            thread = threading.Thread(target=_loop, daemon=True, name="prebuffer-cue")
-            thread.start()
-            self._prebuffer_cue = (stream, stop_event, thread)
-        except Exception as e:
-            logger.warning("Pre-buffer cue start error: %s", e)
-            self._prebuffer_cue = None
+                thread = threading.Thread(target=_loop, daemon=True, name="prebuffer-cue")
+                thread.start()
+                self._prebuffer_cue = (stop_event, thread)
+            except Exception as e:
+                logger.warning("Pre-buffer cue start error: %s", e)
+                self._prebuffer_cue = None
 
     def stop_prebuffer_cue(self) -> None:
-        """Stop the looping cue and tear down its stream. Idempotent."""
-        handle = self._prebuffer_cue
+        """Stop the looping cue. Idempotent. The loop thread owns and closes
+        its own stream, so this only signals and joins."""
+        with self._prebuffer_cue_lock:
+            handle = self._prebuffer_cue
+            self._prebuffer_cue = None
         if handle is None:
             return
-        self._prebuffer_cue = None
-        stream, stop_event, thread = handle
+        stop_event, thread = handle
         stop_event.set()
         thread.join(timeout=2.0)
-        try:
-            stream.stop()
-            stream.close()
-        except Exception:
-            pass
+        if thread.is_alive():
+            logger.warning("Pre-buffer cue thread did not exit within 2s")
 
     def play_ack_sound(self):
         """Short R2-D2-style acknowledgement chime — replaces verbal

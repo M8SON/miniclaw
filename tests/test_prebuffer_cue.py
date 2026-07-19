@@ -1,6 +1,7 @@
 """Tests for the looping R2-D2 pre-buffer cue."""
 
 import sys
+import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -20,6 +21,7 @@ def _make_voice():
     v._output_samplerate = KOKORO_SAMPLE_RATE
     v._output_device_index = None
     v._prebuffer_cue = None
+    v._prebuffer_cue_lock = threading.Lock()
     return v
 
 
@@ -36,7 +38,7 @@ def test_start_then_stop_lifecycle():
     with patch.object(voice_mod, "sd"):
         v.start_prebuffer_cue()
         assert v._prebuffer_cue is not None
-        _, _, thread = v._prebuffer_cue
+        _, thread = v._prebuffer_cue
         v.stop_prebuffer_cue()
         thread.join(timeout=2)
         assert not thread.is_alive()
