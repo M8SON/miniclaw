@@ -118,7 +118,7 @@ Add to `.env.example` and document in `CLAUDE.md`'s env table:
 |---|---|---|
 | `TTS_BACKEND` | `kokoro` | add `elevenlabs` as an accepted value |
 | `ELEVENLABS_API_KEY` | — | required for the elevenlabs backend; absent → Kokoro fallback |
-| `ELEVENLABS_VOICE_ID` | a stock ElevenLabs voice (e.g. "Rachel"), `voice_id` pinned in `.env.example` | swappable |
+| `ELEVENLABS_VOICE_ID` | `onwK4e9ZLuTAKqWW03F9` (Daniel — British, authoritative, closest to "Jarvis") | swappable; George = `JBFqnCBsd6RMkjVDRZzb` (warmer British) |
 | `ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | the ~75ms Flash model |
 
 Add `elevenlabs` to `requirements.txt`.
