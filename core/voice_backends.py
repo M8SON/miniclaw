@@ -877,10 +877,16 @@ class ElevenLabsTTSBackend(KokoroTTSBackend):
             model_id=self._model_id,
             output_format="pcm_24000",
         )
+        carry = b""
         try:
             for chunk in audio_stream:
-                if isinstance(chunk, bytes) and chunk:
-                    yield np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                if not (isinstance(chunk, bytes) and chunk):
+                    continue
+                buf = carry + chunk
+                n = len(buf) - (len(buf) % 2)   # largest even (whole-sample) prefix
+                if n:
+                    yield np.frombuffer(buf[:n], dtype="<i2").astype(np.float32) / 32768.0
+                carry = buf[n:]
         finally:
             close = getattr(audio_stream, "close", None)
             if callable(close):

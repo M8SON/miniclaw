@@ -536,6 +536,13 @@ class ElevenLabsTTSBackendTests(unittest.TestCase):
         self.assertEqual(chunks[0].dtype, np.float32)
         np.testing.assert_allclose(chunks[0], [0.0, 0.5, -0.5], atol=1e-4)
 
+    def test_synth_audio_reassembles_odd_boundary_chunks(self):
+        # 3 int16 samples = 6 bytes, delivered split mid-sample: 3 bytes then 3 bytes
+        pcm = np.array([100, -100, 2000], dtype="<i2").tobytes()  # 6 bytes
+        backend, _ = self._backend([pcm[:3], pcm[3:]])            # odd-length chunks
+        out = np.concatenate(list(backend._synth_audio("hi")))
+        np.testing.assert_allclose(out, np.array([100, -100, 2000]) / 32768.0, atol=1e-4)
+
     def test_synth_audio_requests_flash_pcm_24000(self):
         backend, mock_client = self._backend([b""])
         list(backend._synth_audio("hello"))
