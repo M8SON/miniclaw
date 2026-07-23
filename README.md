@@ -29,7 +29,7 @@ The system uses two layers for extensibility:
 - Wake word detection via openWakeWord — lightweight bundled ONNX models (default `hey_jarvis`); ~order-of-magnitude lower CPU than the previous Whisper-window approach
 - Optional Hailo-backed full transcription on Raspberry Pi AI HAT+ 2 (wake detection is openWakeWord on CPU — Hailo doesn't run the wake loop)
 - Conversation session mode — stays active between follow-ups until idle timeout
-- Streaming TTS — Kokoro chunks play as they're generated; ONNX backend ships fp32 + int8 variants (~2–3× faster than the PyTorch baseline on Pi 5)
+- Streaming TTS — Kokoro chunks play as they're generated; ONNX backend ships fp32 + int8 variants (~2–3× faster than the PyTorch baseline on Pi 5). Optional ElevenLabs cloud backend (Flash v2.5, ~75ms first-audio) for lowest latency, with automatic fallback to local Kokoro when offline
 - Voice skill installation — say "add a skill that does X" and Claude Code writes, builds, and loads it
 - Self-improving skills — bundled skills can autonomously refine their own routing hints based on usage
 - Persistent memory — plain markdown notes for transparency, with MemPalace preferred by default when installed
@@ -359,10 +359,13 @@ Key environment variables in `.env`:
 | `WHISPER_MODEL_HAILO` | `base` | Hailo HEF variant (only `tiny` and `base` are published) |
 | `WHISPER_MODEL` | — | Legacy single-model knob; overrides the above when set |
 | `ENABLE_TTS` | `true` | Set `false` to disable speech |
-| `TTS_BACKEND` | `kokoro` | `kokoro` (PyTorch) or `kokoro-onnx` (ONNX, ~2–3× faster on Pi 5) |
+| `TTS_BACKEND` | `kokoro` | `kokoro` (PyTorch), `kokoro-onnx` (ONNX, ~2–3× faster on Pi 5), or `elevenlabs` (cloud, ~75ms first-audio) |
 | `KOKORO_ONNX_VARIANT` | `fp32` | `fp32` or `int8`; fp32 is faster on ARM, int8 on x86_64 |
 | `TTS_VOICE` | `af_heart` | Kokoro voice (`af_heart`, `am_adam`, `bm_george`, etc.) |
-| `TTS_SPEED` | `1.2` | Speech rate (1.0 = normal, 1.3 = faster) |
+| `TTS_SPEED` | `1.2` | Speech rate (1.0 = normal, 1.3 = faster). ElevenLabs caps at 1.2 (values are clamped) |
+| `ELEVENLABS_API_KEY` | — | Required for `TTS_BACKEND=elevenlabs`; absent/unreachable at startup falls back to `kokoro-onnx` |
+| `ELEVENLABS_VOICE_ID` | `onwK4e9ZLuTAKqWW03F9` | ElevenLabs voice (default: Daniel, British) |
+| `ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | ElevenLabs model (Flash v2.5 — lowest latency) |
 | `SILENCE_THRESHOLD` | `1000` | Mic amplitude to count as speech |
 | `SILENCE_DURATION` | `2.0` | Seconds of silence before ending recording |
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
@@ -505,6 +508,7 @@ Per-skill Docker build assets live under `skills/<name>/scripts/` (Dockerfile + 
 - [x] Conversation session mode (stay active between follow-ups)
 - [x] Kokoro TTS with streaming playback (chunks play as generated)
 - [x] Kokoro ONNX backend (fp32/int8, ~2–3× faster than PyTorch on Pi 5)
+- [x] ElevenLabs cloud TTS backend (Flash v2.5, ~75ms first-audio, startup fallback to Kokoro)
 - [x] R2-D2 style audio feedback (startup chime + thinking sound)
 - [x] Voice skill installation via Claude Code
 - [x] Self-improving skills (additive routing-hint refinement, git-tracked)
