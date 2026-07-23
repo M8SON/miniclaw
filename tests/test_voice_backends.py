@@ -576,5 +576,27 @@ class ElevenLabsTTSBackendTests(unittest.TestCase):
         self.assertEqual(backend.sample_rate, voice_backends.KOKORO_SAMPLE_RATE)
 
 
+class ElevenLabsSelfCheckTests(unittest.TestCase):
+    def test_self_check_consumes_one_chunk(self):
+        mock_client = MagicMock()
+        mock_client.text_to_speech.stream.return_value = [
+            np.array([1], dtype=np.int16).tobytes()
+        ]
+        backend = voice_backends.ElevenLabsTTSBackend(
+            voice_id="v", api_key="k", client=mock_client
+        )
+        voice_backends.elevenlabs_self_check(backend)  # should not raise
+        mock_client.text_to_speech.stream.assert_called_once()
+
+    def test_self_check_raises_when_stream_errors(self):
+        mock_client = MagicMock()
+        mock_client.text_to_speech.stream.side_effect = RuntimeError("401 bad key")
+        backend = voice_backends.ElevenLabsTTSBackend(
+            voice_id="v", api_key="k", client=mock_client
+        )
+        with self.assertRaises(RuntimeError):
+            voice_backends.elevenlabs_self_check(backend)
+
+
 if __name__ == "__main__":
     unittest.main()

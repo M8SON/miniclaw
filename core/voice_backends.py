@@ -885,3 +885,11 @@ class ElevenLabsTTSBackend(KokoroTTSBackend):
             close = getattr(audio_stream, "close", None)
             if callable(close):
                 close()
+
+
+def elevenlabs_self_check(backend: "ElevenLabsTTSBackend") -> None:
+    """Prove key + connectivity by synthesising one character and consuming
+    the first streamed chunk. Raises on any failure so the caller can fall
+    back to a local backend."""
+    for _ in backend._synth_audio("."):
+        break
