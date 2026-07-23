@@ -515,5 +515,66 @@ class BuildVadBackendTests(unittest.TestCase):
             )
 
 
+class ElevenLabsTTSBackendTests(unittest.TestCase):
+    def _backend(self, stream_return):
+        mock_client = MagicMock()
+        mock_client.text_to_speech.stream.return_value = stream_return
+        return voice_backends.ElevenLabsTTSBackend(
+            voice_id="onwK4e9ZLuTAKqWW03F9",
+            api_key="k",
+            client=mock_client,
+        ), mock_client
+
+    def test_synth_audio_converts_pcm_bytes_to_float32(self):
+        # int16 samples 0, 16384, -16384 → float32 0.0, 0.5, -0.5
+        pcm = np.array([0, 16384, -16384], dtype=np.int16).tobytes()
+        backend, mock_client = self._backend([pcm])
+
+        chunks = list(backend._synth_audio("hi"))
+
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].dtype, np.float32)
+        np.testing.assert_allclose(chunks[0], [0.0, 0.5, -0.5], atol=1e-4)
+
+    def test_synth_audio_requests_flash_pcm_24000(self):
+        backend, mock_client = self._backend([b""])
+        list(backend._synth_audio("hello"))
+        _, kwargs = mock_client.text_to_speech.stream.call_args
+        self.assertEqual(kwargs["voice_id"], "onwK4e9ZLuTAKqWW03F9")
+        self.assertEqual(kwargs["model_id"], "eleven_flash_v2_5")
+        self.assertEqual(kwargs["output_format"], "pcm_24000")
+        self.assertEqual(kwargs["text"], "hello")
+
+    def test_synth_audio_skips_non_bytes_and_empty_chunks(self):
+        pcm = np.array([16384], dtype=np.int16).tobytes()
+        backend, _ = self._backend(["metadata-not-bytes", b"", pcm])
+        chunks = list(backend._synth_audio("hi"))
+        self.assertEqual(len(chunks), 1)
+
+    def test_synth_audio_closes_stream_on_break(self):
+        # Simulate a barge-in: consumer stops early. The generator's finally
+        # must call the underlying stream's close().
+        closed = {"n": 0}
+
+        class ClosableStream:
+            def __init__(self):
+                self._data = [np.array([1], dtype=np.int16).tobytes()] * 5
+            def __iter__(self):
+                return iter(self._data)
+            def close(self):
+                closed["n"] += 1
+
+        backend, _ = self._backend(ClosableStream())
+        gen = backend._synth_audio("hi")
+        next(gen)          # pull one chunk
+        gen.close()        # consumer abandons (as a break would)
+        self.assertEqual(closed["n"], 1)
+
+    def test_prebuffer_defaults_to_zero(self):
+        backend, _ = self._backend([b""])
+        self.assertEqual(backend.PREBUFFER_MS, 0)
+        self.assertEqual(backend.sample_rate, voice_backends.KOKORO_SAMPLE_RATE)
+
+
 if __name__ == "__main__":
     unittest.main()

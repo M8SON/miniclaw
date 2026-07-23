@@ -382,6 +382,13 @@ except ImportError:
     _KokoroONNXImpl = None  # type: ignore[assignment]
     _KOKORO_ONNX_AVAILABLE = False
 
+try:
+    from elevenlabs.client import ElevenLabs as _ElevenLabsClient
+    _ELEVENLABS_AVAILABLE = True
+except ImportError:
+    _ElevenLabsClient = None  # type: ignore[assignment]
+    _ELEVENLABS_AVAILABLE = False
+
 
 def _configured_int(env_var: str, default: int, minimum: int) -> int:
     """Read an int env var at backend construction (after load_dotenv), not
@@ -814,3 +821,67 @@ class KokoroONNXBackend(KokoroTTSBackend):
             text, voice=self.voice, speed=self.speed, lang="en-us"
         )
         yield audio
+
+
+class ElevenLabsTTSBackend(KokoroTTSBackend):
+    """Cloud TTS via ElevenLabs Flash v2.5 (~75ms first-audio).
+
+    Reuses KokoroTTSBackend's parallel speak_stream pipeline (sentence flush,
+    synth + writer threads, barge-in, on_first_audio cue-stop) and overrides
+    only _synth_audio. Requests pcm_24000 so the audio matches KOKORO_SAMPLE_RATE
+    and the inherited resample path is correct with no changes.
+    """
+
+    sample_rate = KOKORO_SAMPLE_RATE
+    # ElevenLabs streams faster than realtime, so the 1500ms Kokoro jitter
+    # buffer would only re-add latency. Default to no prebuffer.
+    PREBUFFER_MS = 0
+    MODEL_ID = "eleven_flash_v2_5"
+    DEFAULT_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"  # Daniel — British, Jarvis-like
+
+    def __init__(
+        self,
+        voice_id: str,
+        api_key: str,
+        model_id: str = MODEL_ID,
+        speed: float = 1.0,
+        output_device: int | None = None,
+        output_samplerate: int | None = None,
+        client=None,
+    ):
+        # Do NOT call super().__init__ — there is no Kokoro pipeline to load.
+        # Set only the attributes speak_stream/speak read.
+        if client is None:
+            if not _ELEVENLABS_AVAILABLE:
+                raise ImportError("elevenlabs not installed")
+            client = _ElevenLabsClient(api_key=api_key)
+        self._client = client
+        self._voice_id = voice_id
+        self._model_id = model_id
+        self.voice = voice_id
+        self.speed = speed
+        self.output_device = output_device
+        self.output_samplerate = output_samplerate or KOKORO_SAMPLE_RATE
+        self.MIN_FIRST_FLUSH = _configured_min_first_flush(type(self).MIN_FIRST_FLUSH)
+        self.PREBUFFER_MS = _configured_int(
+            "KOKORO_PREBUFFER_MS", type(self).PREBUFFER_MS, 0
+        )
+        logger.info(
+            "Loading ElevenLabs TTS (voice_id: %s, model: %s)", voice_id, model_id
+        )
+
+    def _synth_audio(self, text: str):
+        audio_stream = self._client.text_to_speech.stream(
+            voice_id=self._voice_id,
+            text=text,
+            model_id=self._model_id,
+            output_format="pcm_24000",
+        )
+        try:
+            for chunk in audio_stream:
+                if isinstance(chunk, bytes) and chunk:
+                    yield np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+        finally:
+            close = getattr(audio_stream, "close", None)
+            if callable(close):
+                close()
