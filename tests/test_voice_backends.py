@@ -525,6 +525,29 @@ class ElevenLabsTTSBackendTests(unittest.TestCase):
             client=mock_client,
         ), mock_client
 
+    def test_speed_clamped_to_elevenlabs_range_at_construction(self):
+        # ElevenLabs voice_settings.speed is limited to 0.7–1.2. A user's
+        # TTS_SPEED=1.4 (fine for Kokoro) must clamp down, not error.
+        mc = MagicMock()
+        fast = voice_backends.ElevenLabsTTSBackend(
+            voice_id="v", api_key="k", speed=1.4, client=mc
+        )
+        slow = voice_backends.ElevenLabsTTSBackend(
+            voice_id="v", api_key="k", speed=0.3, client=mc
+        )
+        self.assertAlmostEqual(fast.speed, 1.2)
+        self.assertAlmostEqual(slow.speed, 0.7)
+
+    def test_synth_audio_passes_speed_as_voice_settings(self):
+        mock_client = MagicMock()
+        mock_client.text_to_speech.stream.return_value = [b""]
+        backend = voice_backends.ElevenLabsTTSBackend(
+            voice_id="v", api_key="k", speed=1.4, client=mock_client
+        )
+        list(backend._synth_audio("hi"))
+        _, kwargs = mock_client.text_to_speech.stream.call_args
+        self.assertAlmostEqual(kwargs["voice_settings"].speed, 1.2)
+
     def test_synth_audio_converts_pcm_bytes_to_float32(self):
         # int16 samples 0, 16384, -16384 → float32 0.0, 0.5, -0.5
         pcm = np.array([0, 16384, -16384], dtype=np.int16).tobytes()

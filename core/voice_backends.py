@@ -384,10 +384,17 @@ except ImportError:
 
 try:
     from elevenlabs.client import ElevenLabs as _ElevenLabsClient
+    from elevenlabs import VoiceSettings as _VoiceSettings
     _ELEVENLABS_AVAILABLE = True
 except ImportError:
     _ElevenLabsClient = None  # type: ignore[assignment]
+    _VoiceSettings = None  # type: ignore[assignment]
     _ELEVENLABS_AVAILABLE = False
+
+# ElevenLabs voice_settings.speed is limited to this range (1.0 = normal).
+# TTS_SPEED values outside it (e.g. Kokoro's 1.4) are clamped, not rejected.
+ELEVENLABS_SPEED_MIN = 0.7
+ELEVENLABS_SPEED_MAX = 1.2
 
 
 def _configured_int(env_var: str, default: int, minimum: int) -> int:
@@ -859,7 +866,9 @@ class ElevenLabsTTSBackend(KokoroTTSBackend):
         self._voice_id = voice_id
         self._model_id = model_id
         self.voice = voice_id
-        self.speed = speed
+        # ElevenLabs caps speed at ELEVENLABS_SPEED_MAX; clamp rather than error
+        # so a Kokoro-tuned TTS_SPEED (e.g. 1.4) still works (capped at 1.2).
+        self.speed = min(max(speed, ELEVENLABS_SPEED_MIN), ELEVENLABS_SPEED_MAX)
         self.output_device = output_device
         self.output_samplerate = output_samplerate or KOKORO_SAMPLE_RATE
         self.MIN_FIRST_FLUSH = _configured_min_first_flush(type(self).MIN_FIRST_FLUSH)
@@ -867,7 +876,8 @@ class ElevenLabsTTSBackend(KokoroTTSBackend):
             "KOKORO_PREBUFFER_MS", type(self).PREBUFFER_MS, 0
         )
         logger.info(
-            "Loading ElevenLabs TTS (voice_id: %s, model: %s)", voice_id, model_id
+            "Loading ElevenLabs TTS (voice_id: %s, model: %s, speed: %.2f)",
+            voice_id, model_id, self.speed,
         )
 
     def _synth_audio(self, text: str):
@@ -876,6 +886,7 @@ class ElevenLabsTTSBackend(KokoroTTSBackend):
             text=text,
             model_id=self._model_id,
             output_format="pcm_24000",
+            voice_settings=_VoiceSettings(speed=self.speed),
         )
         carry = b""
         try:
