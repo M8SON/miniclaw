@@ -223,8 +223,12 @@ Per-skill overrides for `memory`, `read_only`, `extra_tmpfs`, and `volumes` are 
 | `WAKE_WORD_THRESHOLD` | `0.5` | openWakeWord activation confidence (0.0–1.0); raise to reduce false fires |
 | `BARGE_IN_ENABLED` | `true` | Say the wake word during a response to interrupt playback and start listening; set false to disable |
 | `ENABLE_TTS` | `true` | Set false to disable speech output |
+| `TTS_BACKEND` | `kokoro` | `kokoro` \| `kokoro-onnx` \| `elevenlabs` |
 | `TTS_VOICE` | `af_heart` | Kokoro voice (af_heart, am_adam, bm_george, bf_emma, etc.) |
 | `TTS_SPEED` | `1.2` | Speech rate (1.0 = normal, higher = faster) |
+| `ELEVENLABS_API_KEY` | — | Required for `TTS_BACKEND=elevenlabs`; absent/unreachable at startup → kokoro-onnx fallback |
+| `ELEVENLABS_VOICE_ID` | `onwK4e9ZLuTAKqWW03F9` | ElevenLabs voice (Daniel, British) |
+| `ELEVENLABS_MODEL_ID` | `eleven_flash_v2_5` | ElevenLabs Flash model (~75ms first-audio) |
 | `SILENCE_THRESHOLD` | `1000` | Mic amplitude to count as speech |
 | `SILENCE_DURATION` | `2.0` | Seconds of silence before ending recording |
 | `CONVERSATION_IDLE_TIMEOUT` | `8` | Seconds of no speech before returning to wake word |
