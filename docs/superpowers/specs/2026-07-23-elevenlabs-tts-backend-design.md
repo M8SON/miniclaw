@@ -63,14 +63,18 @@ class ElevenLabsTTSBackend(KokoroTTSBackend):
         # PREBUFFER_MS (via _configured_int, same as the Kokoro backends).
 
     def _synth_audio(self, text):
-        with self._client.text_to_speech.stream(
+        audio_stream = self._client.text_to_speech.stream(
             voice_id=self._voice_id, text=text,
             model_id=self._model_id, output_format="pcm_24000",
-        ) as resp:
-            for chunk in resp:                       # bytes, as they arrive
-                if not chunk:
-                    continue
-                yield np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+        )
+        try:
+            for chunk in audio_stream:               # bytes, as they arrive
+                if isinstance(chunk, bytes) and chunk:
+                    yield np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+        finally:
+            close = getattr(audio_stream, "close", None)
+            if callable(close):
+                close()
 ```
 
 **Why the format is `pcm_24000`:** it matches `KOKORO_SAMPLE_RATE` (24000)
@@ -80,10 +84,10 @@ on the first-audio path. Only work needed is int16-bytes → float32-in-[-1,1].
 
 **Barge-in correctness (inherited, no new wiring):** `synth_worker` iterates
 `for audio in self._synth_audio(sent)` and `break`s on `interrupt_event`.
-Breaking out of the generator raises `GeneratorExit` inside it, which exits the
-`with client...stream() as resp:` context and tears down the HTTP stream. The
-`with` block is therefore load-bearing for clean barge-in — the streaming
-response MUST be entered as a context manager, not a bare iterator.
+`.stream()` returns a **plain iterator, not a context manager**, so breaking out
+of `_synth_audio` raises `GeneratorExit` inside it and runs the `finally`, which
+calls the underlying stream's `.close()` if present (tearing down the HTTP
+connection). The `try/finally` is therefore load-bearing for clean barge-in.
 
 **Inherited for free:** `speak()` (greetings / fixed strings), `speak_stream()`
 (LLM replies), sentence-flush, `on_first_audio` cue-stop, device/sample-rate
@@ -95,8 +99,10 @@ Add a `TTS_BACKEND=elevenlabs` branch alongside `kokoro` / `kokoro-onnx`.
 
 - Read `ELEVENLABS_API_KEY`; if unset → fall back (see below).
 - Construct the backend, then run a **cheap self-check** that validates the key
-  and connectivity (a lightweight authenticated call such as `GET /v1/user`),
-  mirroring `hailo_transcription_self_check`.
+  and connectivity by making a **minimal 1-character `text_to_speech.stream`
+  call and consuming its first chunk** (uses only the confirmed SDK method; no
+  reliance on unverified endpoints), mirroring the intent of
+  `hailo_transcription_self_check`.
 - On any failure (missing key, `ImportError` for the `elevenlabs` package, or
   self-check raising) → **fall back to `kokoro-onnx`** and return a status
   message that names the reason. This follows the existing rule that the active
