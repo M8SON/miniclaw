@@ -34,6 +34,7 @@ from core import profiling
 from core.scheduler import SchedulesStore, SchedulerThread
 from core.location_preference import resolve_location
 from core.session_archive import SessionArchive
+from core import voice_backends
 from core.voice_backends import build_stt_backend, build_wake_backend, build_vad_backend
 
 # Configure logging
@@ -181,44 +182,42 @@ def _build_tts_backend(enable_tts: bool, voice: str, speed: float):
     output_sr = output_samplerate(output_device)
 
     backend_name = os.getenv("TTS_BACKEND", "kokoro").strip().lower()
-    if backend_name == "kokoro-onnx":
+
+    if backend_name == "elevenlabs":
+        api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "").strip() or \
+            voice_backends.ElevenLabsTTSBackend.DEFAULT_VOICE_ID
+        model_id = os.getenv("ELEVENLABS_MODEL_ID", "").strip() or \
+            voice_backends.ElevenLabsTTSBackend.MODEL_ID
+        if not api_key:
+            return _build_kokoro_onnx_fallback(
+                voice, speed, output_device, output_sr,
+                "ELEVENLABS_API_KEY not set",
+            )
         try:
-            from core.voice_backends import KokoroONNXBackend, KOKORO_ONNX_ASSET_ROOT
-            # Pi 5 has 4 Cortex-A76 cores. ONNX Runtime defaults to 1
-            # intra-op thread on ARM64 — explicitly use all cores unless
-            # overridden by env (lets users dial down for thermals etc.).
-            threads_env = os.getenv("TTS_ONNX_THREADS")
-            intra_op_threads = int(threads_env) if threads_env else None
-            # int8 vs fp32 — fp32 is the default despite being larger
-            # (~310 MB vs ~88 MB) because ONNX Runtime's int8 kernels for
-            # ARMv8.2 are not optimised for Cortex-A76 DOTPROD: measured
-            # 2026-05-09 on Pi 5, int8 ran ~2x slower than fp32 with
-            # identical config. fp32 also beats the PyTorch backend on
-            # the same hardware. On x86_64 the situation is reversed —
-            # int8 is faster there — so override KOKORO_ONNX_VARIANT
-            # accordingly when running on a non-Pi machine.
-            variant = os.getenv("KOKORO_ONNX_VARIANT", "fp32").strip().lower()
-            model_filename = {
-                "int8": "kokoro-v1.0.int8.onnx",
-                "fp32": "kokoro-v1.0.onnx",
-            }.get(variant, "kokoro-v1.0.onnx")
-            backend = KokoroONNXBackend(
-                voice=voice,
+            backend = voice_backends.ElevenLabsTTSBackend(
+                voice_id=voice_id,
+                api_key=api_key,
+                model_id=model_id,
                 speed=speed,
                 output_device=output_device,
                 output_samplerate=output_sr,
-                intra_op_threads=intra_op_threads,
-                model_path=KOKORO_ONNX_ASSET_ROOT / model_filename,
             )
+            voice_backends.elevenlabs_self_check(backend)
             return backend, (
-                f"TTS backend: kokoro-onnx ({voice}, {variant} @ {output_sr} Hz, "
-                f"{backend.intra_op_threads} thread(s))"
+                f"TTS backend: elevenlabs ({model_id}, voice_id={voice_id} "
+                f"@ {output_sr} Hz)"
             )
-        except (FileNotFoundError, ImportError) as exc:
-            return None, (
-                f"TTS backend: kokoro PyTorch fallback ({voice}) — "
-                f"kokoro-onnx requested but unavailable: {exc}"
+        except Exception as exc:
+            return _build_kokoro_onnx_fallback(
+                voice, speed, output_device, output_sr,
+                f"elevenlabs unavailable: {exc}",
             )
+
+    if backend_name == "kokoro-onnx":
+        return _build_kokoro_onnx_fallback(
+            voice, speed, output_device, output_sr, "requested",
+        )
 
     if backend_name != "kokoro":
         return None, (
@@ -231,6 +230,49 @@ def _build_tts_backend(enable_tts: bool, voice: str, speed: float):
     # VoiceInterface resolves output_device and output_samplerate itself
     # for the PyTorch path.
     return None, f"TTS backend: kokoro PyTorch ({voice})"
+
+
+def _build_kokoro_onnx_fallback(voice, speed, output_device, output_sr, reason):
+    """Build kokoro-onnx for the given device, or return the PyTorch-fallback
+    (None) sentinel if its assets/package are missing. `reason` is prefixed to
+    the status message so the trigger (e.g. an elevenlabs failure) is visible."""
+    try:
+        from core.voice_backends import KokoroONNXBackend, KOKORO_ONNX_ASSET_ROOT
+        # Pi 5 has 4 Cortex-A76 cores. ONNX Runtime defaults to 1
+        # intra-op thread on ARM64 — explicitly use all cores unless
+        # overridden by env (lets users dial down for thermals etc.).
+        threads_env = os.getenv("TTS_ONNX_THREADS")
+        intra_op_threads = int(threads_env) if threads_env else None
+        # int8 vs fp32 — fp32 is the default despite being larger
+        # (~310 MB vs ~88 MB) because ONNX Runtime's int8 kernels for
+        # ARMv8.2 are not optimised for Cortex-A76 DOTPROD: measured
+        # 2026-05-09 on Pi 5, int8 ran ~2x slower than fp32 with
+        # identical config. fp32 also beats the PyTorch backend on
+        # the same hardware. On x86_64 the situation is reversed —
+        # int8 is faster there — so override KOKORO_ONNX_VARIANT
+        # accordingly when running on a non-Pi machine.
+        variant = os.getenv("KOKORO_ONNX_VARIANT", "fp32").strip().lower()
+        model_filename = {
+            "int8": "kokoro-v1.0.int8.onnx",
+            "fp32": "kokoro-v1.0.onnx",
+        }.get(variant, "kokoro-v1.0.onnx")
+        backend = KokoroONNXBackend(
+            voice=voice,
+            speed=speed,
+            output_device=output_device,
+            output_samplerate=output_sr,
+            intra_op_threads=intra_op_threads,
+            model_path=KOKORO_ONNX_ASSET_ROOT / model_filename,
+        )
+        return backend, (
+            f"TTS backend: kokoro-onnx ({voice}, {variant} @ {output_sr} Hz, "
+            f"{backend.intra_op_threads} thread(s)) — {reason}"
+        )
+    except (FileNotFoundError, ImportError) as exc:
+        return None, (
+            f"TTS backend: kokoro PyTorch fallback ({voice}) — {reason}; "
+            f"kokoro-onnx also unavailable: {exc}"
+        )
 
 
 def _display_wake_word() -> str:

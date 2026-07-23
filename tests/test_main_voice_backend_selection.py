@@ -168,5 +168,43 @@ class VadBackendIntegrationTests(unittest.TestCase):
         vad_backend.reset.assert_called_once()
 
 
+class BuildTtsBackendElevenLabsTests(unittest.TestCase):
+    @patch("core.audio_devices.output_samplerate", return_value=48000)
+    @patch("core.audio_devices.resolve_output_device", return_value=0)
+    def test_elevenlabs_selected_when_key_present_and_selfcheck_ok(
+        self, _dev, _sr
+    ):
+        with patch("core.voice_backends.ElevenLabsTTSBackend") as mock_be, \
+             patch("core.voice_backends.elevenlabs_self_check") as mock_check, \
+             patch.dict("os.environ", {"TTS_BACKEND": "elevenlabs",
+                                       "ELEVENLABS_API_KEY": "k"}, clear=False):
+            instance = object()
+            mock_be.return_value = instance
+            backend, msg = main._build_tts_backend(True, "af_heart", 1.2)
+            self.assertIs(backend, instance)
+            self.assertIn("elevenlabs", msg.lower())
+            mock_check.assert_called_once_with(instance)
+
+    @patch("core.audio_devices.output_samplerate", return_value=48000)
+    @patch("core.audio_devices.resolve_output_device", return_value=0)
+    def test_falls_back_to_kokoro_when_no_key(self, _dev, _sr):
+        with patch.dict("os.environ", {"TTS_BACKEND": "elevenlabs"}, clear=False):
+            import os as _os
+            _os.environ.pop("ELEVENLABS_API_KEY", None)
+            backend, msg = main._build_tts_backend(True, "af_heart", 1.2)
+            self.assertIn("kokoro", msg.lower())
+
+    @patch("core.audio_devices.output_samplerate", return_value=48000)
+    @patch("core.audio_devices.resolve_output_device", return_value=0)
+    def test_falls_back_to_kokoro_when_selfcheck_raises(self, _dev, _sr):
+        with patch("core.voice_backends.ElevenLabsTTSBackend"), \
+             patch("core.voice_backends.elevenlabs_self_check",
+                   side_effect=RuntimeError("offline")), \
+             patch.dict("os.environ", {"TTS_BACKEND": "elevenlabs",
+                                       "ELEVENLABS_API_KEY": "k"}, clear=False):
+            backend, msg = main._build_tts_backend(True, "af_heart", 1.2)
+            self.assertIn("kokoro", msg.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

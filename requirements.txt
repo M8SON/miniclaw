@@ -37,3 +37,6 @@ kokoro-onnx>=0.5.0
 
 # Spotify Web API client (used by core/spotify_auth.py + skills/spotify/)
 spotipy>=2.24
+
+# ElevenLabs TTS SDK
+elevenlabs>=2.59
