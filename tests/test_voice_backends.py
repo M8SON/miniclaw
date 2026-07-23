@@ -577,6 +577,34 @@ class ElevenLabsTTSBackendTests(unittest.TestCase):
         gen.close()        # consumer abandons (as a break would)
         self.assertEqual(closed["n"], 1)
 
+    def test_synth_audio_closes_stream_on_for_loop_break(self):
+        # Mirrors the production barge-in path: synth_worker does
+        # `for audio in self._synth_audio(sent): if interrupted: break`.
+        # The generator is an unnamed temporary, so breaking the loop drops
+        # its last reference and CPython finalizes it → GeneratorExit → the
+        # finally in _synth_audio calls the underlying stream's close().
+        closed = {"n": 0}
+
+        class ClosableStream:
+            def __init__(self):
+                self._data = [np.array([1], dtype="<i2").tobytes()] * 5
+            def __iter__(self):
+                return iter(self._data)
+            def close(self):
+                closed["n"] += 1
+
+        backend, _ = self._backend(ClosableStream())
+
+        def consume_one():
+            # No name binding on the generator — exactly like synth_worker's
+            # `for audio in self._synth_audio(sent)`. Breaking after the first
+            # chunk leaves the generator unreferenced on function return.
+            for _audio in backend._synth_audio("hi"):
+                break
+
+        consume_one()
+        self.assertEqual(closed["n"], 1)
+
     def test_prebuffer_defaults_to_zero(self):
         backend, _ = self._backend([b""])
         self.assertEqual(backend.PREBUFFER_MS, 0)
